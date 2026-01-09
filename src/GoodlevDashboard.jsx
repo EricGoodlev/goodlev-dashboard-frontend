@@ -90,7 +90,105 @@ const calculateRetirementGrowth = (currentBalance, monthlyContrib, years) => {
 
 const formatCurrency = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value || 0);
 
+// =============================================================================
+// LOGIN SCREEN COMPONENT
+// =============================================================================
+function LoginScreen({ onLogin }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const correctPassword = import.meta.env.VITE_DASHBOARD_PASSWORD;
+    
+    if (password === correctPassword) {
+      sessionStorage.setItem('dashboard_authenticated', 'true');
+      onLogin();
+    } else {
+      setError('Incorrect password');
+      setPassword('');
+    }
+  };
+  
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: `linear-gradient(135deg, ${COLORS.primary} 0%, #0A1F33 100%)`,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontFamily: 'system-ui, sans-serif',
+    }}>
+      <div style={{
+        background: COLORS.bgCard,
+        borderRadius: 16,
+        padding: 40,
+        width: '100%',
+        maxWidth: 400,
+        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+      }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🏦</div>
+          <h1 style={{ margin: 0, fontSize: 24, color: COLORS.primary, fontWeight: 700 }}>
+            Goodlev Family Dashboard
+          </h1>
+          <p style={{ margin: '8px 0 0 0', color: COLORS.textMuted, fontSize: 14 }}>
+            Enter password to continue
+          </p>
+        </div>
+        
+        <form onSubmit={handleSubmit}>
+          <input
+            type="password"
+            value={password}
+            onChange={e => { setPassword(e.target.value); setError(''); }}
+            placeholder="Password"
+            autoFocus
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              fontSize: 16,
+              border: `2px solid ${error ? COLORS.negative : COLORS.border}`,
+              borderRadius: 8,
+              marginBottom: 16,
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+          
+          {error && (
+            <div style={{ color: COLORS.negative, fontSize: 14, marginBottom: 16, textAlign: 'center' }}>
+              {error}
+            </div>
+          )}
+          
+          <button type="submit" style={{
+            width: '100%',
+            padding: '14px 16px',
+            fontSize: 16,
+            fontWeight: 600,
+            color: '#FFF',
+            background: COLORS.accent,
+            border: 'none',
+            borderRadius: 8,
+            cursor: 'pointer',
+          }}>
+            Sign In
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// MAIN DASHBOARD COMPONENT
+// =============================================================================
 export default function GoodlevDashboard() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return sessionStorage.getItem('dashboard_authenticated') === 'true';
+  });
+  
   const [activeTab, setActiveTab] = useState('overview');
   const [philosophy, setPhilosophy] = useState('balanced');
   const [helocExtra, setHelocExtra] = useState(1961);
@@ -98,13 +196,21 @@ export default function GoodlevDashboard() {
   const [emergencyExtra, setEmergencyExtra] = useState(392);
   const [educationExtra, setEducationExtra] = useState(392);
   
-  const [actualSpending, setActualSpending] = useState({
+  const [actualSpending] = useState({
     mortgage: 4472, heloc: 1528, therapy: 882, shopping: 1890, childcare: 889,
     groceries: 920, dining: 485, utilities: 380, fitness: 390, other: 1245,
   });
 
-  const [apiConfig, setApiConfig] = useState({ url: 'https://goodlevdashboard.up.railway.app', key: '' });
+  const apiUrl = import.meta.env.VITE_API_URL || 'https://goodlevdashboard.up.railway.app';
+  const apiKey = import.meta.env.VITE_API_KEY || '';
+  
   const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    if (apiKey && isAuthenticated) {
+      fetch(`${apiUrl}/health`).then(res => { if (res.ok) setIsConnected(true); }).catch(() => {});
+    }
+  }, [isAuthenticated, apiKey, apiUrl]);
 
   useEffect(() => {
     const preset = PHILOSOPHIES[philosophy];
@@ -130,20 +236,21 @@ export default function GoodlevDashboard() {
   const monthlyRetirement = (BASELINE.totalAnnualRetirement / 12) + retirementExtra;
   const retirementProjection = useMemo(() => calculateRetirementGrowth(BASELINE.totalRetirement, monthlyRetirement, 20), [monthlyRetirement]);
 
-  const connectApi = async () => {
-    try {
-      const res = await fetch(`${apiConfig.url}/health`);
-      if (res.ok) setIsConnected(true);
-    } catch (e) { console.error(e); }
+  const handleLogout = () => {
+    sessionStorage.removeItem('dashboard_authenticated');
+    setIsAuthenticated(false);
   };
 
   const categoryData = Object.entries(BASELINE.categories).map(([key, cat]) => ({
     name: cat.name, budgeted: cat.budgeted, actual: actualSpending[key] || 0,
   }));
 
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: COLORS.bg, fontFamily: 'system-ui, sans-serif' }}>
-      {/* Header */}
       <header style={{ background: `linear-gradient(135deg, ${COLORS.primary} 0%, #0A1F33 100%)`, padding: '20px 24px', color: '#FFF' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -151,8 +258,14 @@ export default function GoodlevDashboard() {
               <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Goodlev Family Dashboard</h1>
               <p style={{ margin: '4px 0 0 0', opacity: 0.8, fontSize: 13 }}>Financial Planning & Budget Tracking</p>
             </div>
-            <div style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.15)', borderRadius: 8, fontSize: 14 }}>
-              Surplus: <strong>{formatCurrency(actualSurplus)}</strong>/mo
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.15)', borderRadius: 8, fontSize: 14 }}>
+                Surplus: <strong>{formatCurrency(actualSurplus)}</strong>/mo
+              </div>
+              <button onClick={handleLogout} style={{
+                padding: '8px 12px', background: 'rgba(255,255,255,0.1)', color: '#FFF',
+                border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, cursor: 'pointer', fontSize: 13,
+              }}>Logout</button>
             </div>
           </div>
           <nav style={{ marginTop: 20, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -167,25 +280,15 @@ export default function GoodlevDashboard() {
       </header>
 
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
-        {/* Connection Panel */}
         <div style={{ background: isConnected ? '#D5F5E3' : '#FEF9E7', border: `1px solid ${isConnected ? COLORS.positive : COLORS.warning}`, borderRadius: 12, padding: 16, marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: isConnected ? 0 : 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: isConnected ? COLORS.positive : COLORS.warning }} />
-            <span style={{ fontWeight: 600, color: COLORS.text }}>{isConnected ? '✓ Connected to YNAB API' : 'Demo Mode - Enter API key to connect'}</span>
+            <span style={{ fontWeight: 600, color: COLORS.text }}>{isConnected ? '✓ Connected to YNAB API' : 'Demo Mode - Configure VITE_API_KEY in Vercel'}</span>
           </div>
-          {!isConnected && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <input type="password" placeholder="API Key" value={apiConfig.key} onChange={e => setApiConfig(p => ({ ...p, key: e.target.value }))}
-                style={{ flex: 1, minWidth: 200, padding: '8px 12px', border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 14 }} />
-              <button onClick={connectApi} style={{ padding: '8px 16px', background: COLORS.accent, color: '#FFF', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>Connect</button>
-            </div>
-          )}
         </div>
 
-        {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div>
-            {/* Key Metrics */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
               {[
                 { label: 'Monthly Surplus', value: formatCurrency(actualSurplus), color: actualSurplus > 0 ? COLORS.positive : COLORS.negative },
@@ -200,18 +303,11 @@ export default function GoodlevDashboard() {
                 </div>
               ))}
             </div>
-
-            {/* Retirement Chart */}
             <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}` }}>
               <h3 style={{ margin: '0 0 16px 0', color: COLORS.text }}>20-Year Retirement Trajectory</h3>
               <ResponsiveContainer width="100%" height={280}>
                 <AreaChart data={retirementProjection.snapshots}>
-                  <defs>
-                    <linearGradient id="retGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={COLORS.retirement} stopOpacity={0.3} />
-                      <stop offset="95%" stopColor={COLORS.retirement} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+                  <defs><linearGradient id="retGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={COLORS.retirement} stopOpacity={0.3} /><stop offset="95%" stopColor={COLORS.retirement} stopOpacity={0} /></linearGradient></defs>
                   <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
                   <XAxis dataKey="age" tick={{ fill: COLORS.textMuted, fontSize: 12 }} />
                   <YAxis tickFormatter={v => `$${(v / 1000000).toFixed(1)}M`} tick={{ fill: COLORS.textMuted, fontSize: 12 }} />
@@ -222,25 +318,22 @@ export default function GoodlevDashboard() {
               </ResponsiveContainer>
               <div style={{ marginTop: 12, textAlign: 'center', color: COLORS.textLight, fontSize: 13 }}>
                 Projected at 60: <strong style={{ color: COLORS.retirement }}>{formatCurrency(retirementProjection.finalBalance)}</strong>
-                {retirementProjection.finalBalance >= BASELINE.retirementTarget ? <span style={{ color: COLORS.positive }}> ✓ Exceeds $4M target</span> : null}
+                {retirementProjection.finalBalance >= BASELINE.retirementTarget && <span style={{ color: COLORS.positive }}> ✓ Exceeds $4M target</span>}
               </div>
             </div>
           </div>
         )}
 
-        {/* BUDGET TAB */}
         {activeTab === 'budget' && (
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, marginBottom: 24 }}>
               <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}` }}>
                 <h3 style={{ margin: '0 0 16px 0', color: COLORS.text, fontSize: 16 }}>This Month</h3>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Budgeted</span><span style={{ fontWeight: 600 }}>{formatCurrency(totalBudgeted)}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Actual</span><span style={{ fontWeight: 600 }}>{formatCurrency(totalActual)}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, borderTop: `1px solid ${COLORS.border}` }}>
                   <span style={{ fontWeight: 600 }}>Variance</span>
-                  <span style={{ fontWeight: 700, color: totalBudgeted - totalActual >= 0 ? COLORS.positive : COLORS.negative }}>
-                    {totalBudgeted - totalActual >= 0 ? '+' : ''}{formatCurrency(totalBudgeted - totalActual)}
-                  </span>
+                  <span style={{ fontWeight: 700, color: totalBudgeted - totalActual >= 0 ? COLORS.positive : COLORS.negative }}>{totalBudgeted - totalActual >= 0 ? '+' : ''}{formatCurrency(totalBudgeted - totalActual)}</span>
                 </div>
               </div>
               <div style={{ background: `linear-gradient(135deg, ${COLORS.primary} 0%, #1A3A5C 100%)`, borderRadius: 12, padding: 24, color: '#FFF' }}>
@@ -252,7 +345,6 @@ export default function GoodlevDashboard() {
                 </div>
               </div>
             </div>
-
             <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}` }}>
               <h3 style={{ margin: '0 0 16px 0', color: COLORS.text }}>Budget vs Actual</h3>
               <ResponsiveContainer width="100%" height={300}>
@@ -269,10 +361,8 @@ export default function GoodlevDashboard() {
           </div>
         )}
 
-        {/* ALLOCATION TAB */}
         {activeTab === 'allocation' && (
           <div>
-            {/* Philosophy Selector */}
             <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, marginBottom: 24 }}>
               <h3 style={{ margin: '0 0 16px 0', color: COLORS.text }}>Financial Philosophy</h3>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -284,8 +374,6 @@ export default function GoodlevDashboard() {
                 ))}
               </div>
             </div>
-
-            {/* Allocation Sliders */}
             <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, marginBottom: 24 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <h3 style={{ margin: 0, color: COLORS.text }}>Surplus Allocation</h3>
@@ -293,14 +381,12 @@ export default function GoodlevDashboard() {
                   {remainingSurplus >= 0 ? `${formatCurrency(remainingSurplus)} unallocated` : `${formatCurrency(Math.abs(remainingSurplus))} over`}
                 </div>
               </div>
-              
               <div style={{ height: 8, background: COLORS.border, borderRadius: 4, marginBottom: 24, display: 'flex', overflow: 'hidden' }}>
                 <div style={{ width: `${(helocExtra / BASELINE.monthlySurplus) * 100}%`, background: COLORS.heloc }} />
                 <div style={{ width: `${(retirementExtra / BASELINE.monthlySurplus) * 100}%`, background: COLORS.retirement }} />
                 <div style={{ width: `${(emergencyExtra / BASELINE.monthlySurplus) * 100}%`, background: COLORS.emergency }} />
                 <div style={{ width: `${(educationExtra / BASELINE.monthlySurplus) * 100}%`, background: COLORS.education }} />
               </div>
-
               {[
                 { label: 'HELOC Extra', value: helocExtra, setter: setHelocExtra, color: COLORS.heloc, max: 3000 },
                 { label: 'Retirement Extra', value: retirementExtra, setter: setRetirementExtra, color: COLORS.retirement, max: 2000 },
@@ -312,13 +398,10 @@ export default function GoodlevDashboard() {
                     <span style={{ color: COLORS.text, fontWeight: 500 }}>{s.label}</span>
                     <span style={{ color: s.color, fontWeight: 700 }}>{formatCurrency(s.value)}/mo</span>
                   </div>
-                  <input type="range" min="0" max={s.max} step="50" value={s.value} onChange={e => s.setter(Number(e.target.value))}
-                    style={{ width: '100%', accentColor: s.color }} />
+                  <input type="range" min="0" max={s.max} step="50" value={s.value} onChange={e => s.setter(Number(e.target.value))} style={{ width: '100%', accentColor: s.color }} />
                 </div>
               ))}
             </div>
-
-            {/* Projection Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
               <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.heloc}` }}>
                 <h4 style={{ margin: '0 0 16px 0', color: COLORS.heloc }}>🏦 HELOC Payoff</h4>
@@ -326,31 +409,24 @@ export default function GoodlevDashboard() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Months</span><span style={{ fontWeight: 600 }}>{helocWithExtra.months}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: COLORS.textLight }}>Interest Saved</span><span style={{ fontWeight: 600, color: COLORS.positive }}>{formatCurrency(interestSaved)}</span></div>
               </div>
-
               <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.retirement}` }}>
                 <h4 style={{ margin: '0 0 16px 0', color: COLORS.retirement }}>📈 Retirement at 60</h4>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Projected</span><span style={{ fontWeight: 600 }}>{formatCurrency(retirementProjection.finalBalance)}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Monthly Contrib</span><span style={{ fontWeight: 600 }}>{formatCurrency(monthlyRetirement)}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: COLORS.textLight }}>vs Target</span><span style={{ fontWeight: 600, color: retirementProjection.finalBalance >= BASELINE.retirementTarget ? COLORS.positive : COLORS.warning }}>{retirementProjection.finalBalance >= BASELINE.retirementTarget ? '+' : ''}{formatCurrency(retirementProjection.finalBalance - BASELINE.retirementTarget)}</span></div>
               </div>
-
               <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.emergency}` }}>
                 <h4 style={{ margin: '0 0 16px 0', color: COLORS.emergency }}>🛡️ Emergency Fund</h4>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Current</span><span style={{ fontWeight: 600 }}>{formatCurrency(BASELINE.emergencyFund)}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Target</span><span style={{ fontWeight: 600 }}>{formatCurrency(BASELINE.emergencyTarget)}</span></div>
-                <div style={{ height: 8, background: COLORS.border, borderRadius: 4, overflow: 'hidden', marginTop: 8 }}>
-                  <div style={{ width: `${Math.min(100, (BASELINE.emergencyFund / BASELINE.emergencyTarget) * 100)}%`, height: '100%', background: COLORS.emergency }} />
-                </div>
+                <div style={{ height: 8, background: COLORS.border, borderRadius: 4, overflow: 'hidden', marginTop: 8 }}><div style={{ width: `${Math.min(100, (BASELINE.emergencyFund / BASELINE.emergencyTarget) * 100)}%`, height: '100%', background: COLORS.emergency }} /></div>
                 <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 4 }}>{Math.round((BASELINE.emergencyFund / BASELINE.emergencyTarget) * 100)}% funded</div>
               </div>
             </div>
           </div>
         )}
       </main>
-
-      <footer style={{ padding: 20, textAlign: 'center', color: COLORS.textMuted, fontSize: 12, borderTop: `1px solid ${COLORS.border}` }}>
-        Goodlev Family Dashboard • YNAB + Claude
-      </footer>
+      <footer style={{ padding: 20, textAlign: 'center', color: COLORS.textMuted, fontSize: 12, borderTop: `1px solid ${COLORS.border}` }}>Goodlev Family Dashboard • YNAB + Claude</footer>
     </div>
   );
 }
