@@ -1,0 +1,356 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, AreaChart, Area, ReferenceLine } from 'recharts';
+
+const COLORS = {
+  primary: '#0F2942',
+  accent: '#D4A84B',
+  positive: '#2ECC71',
+  negative: '#E74C3C',
+  warning: '#F39C12',
+  plan: '#3498DB',
+  heloc: '#E74C3C',
+  retirement: '#2ECC71',
+  education: '#3498DB',
+  emergency: '#F39C12',
+  bg: '#F8F9FA',
+  bgCard: '#FFFFFF',
+  text: '#2C3E50',
+  textLight: '#7F8C8D',
+  textMuted: '#95A5A6',
+  border: '#E8ECF0',
+};
+
+const BASELINE = {
+  monthlyIncome: 22625,
+  monthlySurplus: 3922,
+  totalRetirement: 645449,
+  helocBalance: 275809,
+  helocRate: 0.0632,
+  helocPayment: 1546,
+  emergencyFund: 24049,
+  emergencyTarget: 56000,
+  balance529: 85747,
+  totalAnnualRetirement: 41225,
+  ericAge: 40,
+  retirementTarget: 4000000,
+  categories: {
+    mortgage: { budgeted: 4208, name: 'Mortgage' },
+    heloc: { budgeted: 1546, name: 'HELOC' },
+    therapy: { budgeted: 3000, name: 'Therapy' },
+    shopping: { budgeted: 1645, name: 'Shopping' },
+    childcare: { budgeted: 876, name: 'Childcare' },
+    groceries: { budgeted: 800, name: 'Groceries' },
+    dining: { budgeted: 400, name: 'Dining' },
+    utilities: { budgeted: 400, name: 'Utilities' },
+    fitness: { budgeted: 400, name: 'Fitness' },
+    other: { budgeted: 1428, name: 'Other' },
+  }
+};
+
+const PHILOSOPHIES = {
+  balanced: { name: 'Balanced', helocAllocation: 0.5, retirementAllocation: 0.3, emergencyAllocation: 0.1, educationAllocation: 0.1 },
+  debtFirst: { name: 'Debt First', helocAllocation: 0.8, retirementAllocation: 0.1, emergencyAllocation: 0.05, educationAllocation: 0.05 },
+  growth: { name: 'Growth Focus', helocAllocation: 0.2, retirementAllocation: 0.6, emergencyAllocation: 0.1, educationAllocation: 0.1 },
+  fire: { name: 'FIRE', helocAllocation: 0.15, retirementAllocation: 0.7, emergencyAllocation: 0.1, educationAllocation: 0.05 },
+};
+
+const calculateDebtPayoff = (principal, annualRate, monthlyPayment, extraPayment = 0) => {
+  let balance = principal;
+  const monthlyRate = annualRate / 12;
+  const totalPayment = monthlyPayment + extraPayment;
+  let months = 0;
+  let totalInterest = 0;
+  
+  while (balance > 0 && months < 360) {
+    const interest = balance * monthlyRate;
+    totalInterest += interest;
+    balance = Math.max(0, balance - (totalPayment - interest));
+    months++;
+    if (totalPayment <= interest) return { months: -1, payoffDate: 'Never', totalInterest: Infinity };
+  }
+  
+  const payoffDate = new Date();
+  payoffDate.setMonth(payoffDate.getMonth() + months);
+  return { months, payoffDate: payoffDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), totalInterest: Math.round(totalInterest) };
+};
+
+const calculateRetirementGrowth = (currentBalance, monthlyContrib, years) => {
+  const monthlyReturn = 0.07 / 12;
+  let balance = currentBalance;
+  const snapshots = [];
+  
+  for (let month = 1; month <= years * 12; month++) {
+    balance = balance * (1 + monthlyReturn) + monthlyContrib;
+    if (month % 12 === 0) {
+      snapshots.push({ year: month / 12, age: BASELINE.ericAge + (month / 12), balance: Math.round(balance) });
+    }
+  }
+  return { finalBalance: Math.round(balance), snapshots };
+};
+
+const formatCurrency = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value || 0);
+
+export default function GoodlevDashboard() {
+  const [activeTab, setActiveTab] = useState('overview');
+  const [philosophy, setPhilosophy] = useState('balanced');
+  const [helocExtra, setHelocExtra] = useState(1961);
+  const [retirementExtra, setRetirementExtra] = useState(1176);
+  const [emergencyExtra, setEmergencyExtra] = useState(392);
+  const [educationExtra, setEducationExtra] = useState(392);
+  
+  const [actualSpending, setActualSpending] = useState({
+    mortgage: 4472, heloc: 1528, therapy: 882, shopping: 1890, childcare: 889,
+    groceries: 920, dining: 485, utilities: 380, fitness: 390, other: 1245,
+  });
+
+  const [apiConfig, setApiConfig] = useState({ url: 'https://goodlevdashboard.up.railway.app', key: '' });
+  const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    const preset = PHILOSOPHIES[philosophy];
+    if (preset) {
+      const surplus = BASELINE.monthlySurplus;
+      setHelocExtra(Math.round(surplus * preset.helocAllocation));
+      setRetirementExtra(Math.round(surplus * preset.retirementAllocation));
+      setEmergencyExtra(Math.round(surplus * preset.emergencyAllocation));
+      setEducationExtra(Math.round(surplus * preset.educationAllocation));
+    }
+  }, [philosophy]);
+
+  const totalAllocated = helocExtra + retirementExtra + emergencyExtra + educationExtra;
+  const remainingSurplus = BASELINE.monthlySurplus - totalAllocated;
+  const totalActual = Object.values(actualSpending).reduce((a, b) => a + b, 0);
+  const totalBudgeted = Object.values(BASELINE.categories).reduce((a, b) => a + b.budgeted, 0);
+  const actualSurplus = BASELINE.monthlyIncome - totalActual;
+
+  const helocBaseline = useMemo(() => calculateDebtPayoff(BASELINE.helocBalance, BASELINE.helocRate, BASELINE.helocPayment, 0), []);
+  const helocWithExtra = useMemo(() => calculateDebtPayoff(BASELINE.helocBalance, BASELINE.helocRate, BASELINE.helocPayment, helocExtra), [helocExtra]);
+  const interestSaved = helocBaseline.totalInterest - helocWithExtra.totalInterest;
+
+  const monthlyRetirement = (BASELINE.totalAnnualRetirement / 12) + retirementExtra;
+  const retirementProjection = useMemo(() => calculateRetirementGrowth(BASELINE.totalRetirement, monthlyRetirement, 20), [monthlyRetirement]);
+
+  const connectApi = async () => {
+    try {
+      const res = await fetch(`${apiConfig.url}/health`);
+      if (res.ok) setIsConnected(true);
+    } catch (e) { console.error(e); }
+  };
+
+  const categoryData = Object.entries(BASELINE.categories).map(([key, cat]) => ({
+    name: cat.name, budgeted: cat.budgeted, actual: actualSpending[key] || 0,
+  }));
+
+  return (
+    <div style={{ minHeight: '100vh', background: COLORS.bg, fontFamily: 'system-ui, sans-serif' }}>
+      {/* Header */}
+      <header style={{ background: `linear-gradient(135deg, ${COLORS.primary} 0%, #0A1F33 100%)`, padding: '20px 24px', color: '#FFF' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Goodlev Family Dashboard</h1>
+              <p style={{ margin: '4px 0 0 0', opacity: 0.8, fontSize: 13 }}>Financial Planning & Budget Tracking</p>
+            </div>
+            <div style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.15)', borderRadius: 8, fontSize: 14 }}>
+              Surplus: <strong>{formatCurrency(actualSurplus)}</strong>/mo
+            </div>
+          </div>
+          <nav style={{ marginTop: 20, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {[{ id: 'overview', label: '📊 Overview' }, { id: 'budget', label: '💰 Budget' }, { id: 'allocation', label: '🎯 Allocation' }].map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+                padding: '10px 18px', background: activeTab === tab.id ? COLORS.accent : 'transparent',
+                color: '#FFF', border: 'none', borderRadius: '8px 8px 0 0', fontWeight: activeTab === tab.id ? 600 : 400, cursor: 'pointer', fontSize: 14,
+              }}>{tab.label}</button>
+            ))}
+          </nav>
+        </div>
+      </header>
+
+      <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
+        {/* Connection Panel */}
+        <div style={{ background: isConnected ? '#D5F5E3' : '#FEF9E7', border: `1px solid ${isConnected ? COLORS.positive : COLORS.warning}`, borderRadius: 12, padding: 16, marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: isConnected ? 0 : 12 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: isConnected ? COLORS.positive : COLORS.warning }} />
+            <span style={{ fontWeight: 600, color: COLORS.text }}>{isConnected ? '✓ Connected to YNAB API' : 'Demo Mode - Enter API key to connect'}</span>
+          </div>
+          {!isConnected && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input type="password" placeholder="API Key" value={apiConfig.key} onChange={e => setApiConfig(p => ({ ...p, key: e.target.value }))}
+                style={{ flex: 1, minWidth: 200, padding: '8px 12px', border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 14 }} />
+              <button onClick={connectApi} style={{ padding: '8px 16px', background: COLORS.accent, color: '#FFF', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>Connect</button>
+            </div>
+          )}
+        </div>
+
+        {/* OVERVIEW TAB */}
+        {activeTab === 'overview' && (
+          <div>
+            {/* Key Metrics */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
+              {[
+                { label: 'Monthly Surplus', value: formatCurrency(actualSurplus), color: actualSurplus > 0 ? COLORS.positive : COLORS.negative },
+                { label: 'HELOC Balance', value: formatCurrency(BASELINE.helocBalance), sub: `Payoff: ${helocWithExtra.payoffDate}`, color: COLORS.heloc },
+                { label: 'Retirement', value: formatCurrency(BASELINE.totalRetirement), sub: `Target: ${formatCurrency(BASELINE.retirementTarget)}`, color: COLORS.retirement },
+                { label: 'Emergency Fund', value: formatCurrency(BASELINE.emergencyFund), sub: `Target: ${formatCurrency(BASELINE.emergencyTarget)}`, color: COLORS.emergency },
+              ].map(card => (
+                <div key={card.label} style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${card.color}` }}>
+                  <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 4 }}>{card.label}</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: card.color }}>{card.value}</div>
+                  {card.sub && <div style={{ fontSize: 12, color: COLORS.textLight }}>{card.sub}</div>}
+                </div>
+              ))}
+            </div>
+
+            {/* Retirement Chart */}
+            <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}` }}>
+              <h3 style={{ margin: '0 0 16px 0', color: COLORS.text }}>20-Year Retirement Trajectory</h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <AreaChart data={retirementProjection.snapshots}>
+                  <defs>
+                    <linearGradient id="retGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={COLORS.retirement} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={COLORS.retirement} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
+                  <XAxis dataKey="age" tick={{ fill: COLORS.textMuted, fontSize: 12 }} />
+                  <YAxis tickFormatter={v => `$${(v / 1000000).toFixed(1)}M`} tick={{ fill: COLORS.textMuted, fontSize: 12 }} />
+                  <Tooltip formatter={v => formatCurrency(v)} labelFormatter={age => `Age ${age}`} />
+                  <ReferenceLine y={BASELINE.retirementTarget} stroke={COLORS.accent} strokeDasharray="5 5" />
+                  <Area type="monotone" dataKey="balance" stroke={COLORS.retirement} fill="url(#retGrad)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+              <div style={{ marginTop: 12, textAlign: 'center', color: COLORS.textLight, fontSize: 13 }}>
+                Projected at 60: <strong style={{ color: COLORS.retirement }}>{formatCurrency(retirementProjection.finalBalance)}</strong>
+                {retirementProjection.finalBalance >= BASELINE.retirementTarget ? <span style={{ color: COLORS.positive }}> ✓ Exceeds $4M target</span> : null}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* BUDGET TAB */}
+        {activeTab === 'budget' && (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
+              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}` }}>
+                <h3 style={{ margin: '0 0 16px 0', color: COLORS.text, fontSize: 16 }}>This Month</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Budgeted</span><span style={{ fontWeight: 600 }}>{formatCurrency(totalBudgeted)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Actual</span><span style={{ fontWeight: 600 }}>{formatCurrency(totalActual)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, borderTop: `1px solid ${COLORS.border}` }}>
+                  <span style={{ fontWeight: 600 }}>Variance</span>
+                  <span style={{ fontWeight: 700, color: totalBudgeted - totalActual >= 0 ? COLORS.positive : COLORS.negative }}>
+                    {totalBudgeted - totalActual >= 0 ? '+' : ''}{formatCurrency(totalBudgeted - totalActual)}
+                  </span>
+                </div>
+              </div>
+              <div style={{ background: `linear-gradient(135deg, ${COLORS.primary} 0%, #1A3A5C 100%)`, borderRadius: 12, padding: 24, color: '#FFF' }}>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>HELOC Impact</h3>
+                <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 8 }}>Extra {formatCurrency(helocExtra)}/mo to HELOC:</div>
+                <div style={{ display: 'flex', gap: 24 }}>
+                  <div><div style={{ fontSize: 11, opacity: 0.7 }}>Payoff Date</div><div style={{ fontSize: 18, fontWeight: 700 }}>{helocWithExtra.payoffDate}</div></div>
+                  <div><div style={{ fontSize: 11, opacity: 0.7 }}>Interest Saved</div><div style={{ fontSize: 18, fontWeight: 700, color: '#58D68D' }}>{formatCurrency(interestSaved)}</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}` }}>
+              <h3 style={{ margin: '0 0 16px 0', color: COLORS.text }}>Budget vs Actual</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={categoryData} layout="vertical" margin={{ left: 80 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
+                  <XAxis type="number" tickFormatter={v => `$${v}`} />
+                  <YAxis type="category" dataKey="name" tick={{ fill: COLORS.textMuted, fontSize: 12 }} width={80} />
+                  <Tooltip formatter={v => formatCurrency(v)} />
+                  <Bar dataKey="budgeted" fill={COLORS.plan} name="Budgeted" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="actual" fill={COLORS.positive} name="Actual" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* ALLOCATION TAB */}
+        {activeTab === 'allocation' && (
+          <div>
+            {/* Philosophy Selector */}
+            <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, marginBottom: 24 }}>
+              <h3 style={{ margin: '0 0 16px 0', color: COLORS.text }}>Financial Philosophy</h3>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {Object.entries(PHILOSOPHIES).map(([key, preset]) => (
+                  <button key={key} onClick={() => setPhilosophy(key)} style={{
+                    padding: '10px 16px', borderRadius: 8, border: philosophy === key ? `2px solid ${COLORS.accent}` : `1px solid ${COLORS.border}`,
+                    background: philosophy === key ? `${COLORS.accent}20` : COLORS.bgCard, cursor: 'pointer', fontWeight: 600, color: COLORS.text,
+                  }}>{preset.name}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Allocation Sliders */}
+            <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, marginBottom: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ margin: 0, color: COLORS.text }}>Surplus Allocation</h3>
+                <div style={{ padding: '6px 12px', borderRadius: 20, background: remainingSurplus >= 0 ? `${COLORS.positive}30` : `${COLORS.negative}30`, color: remainingSurplus >= 0 ? COLORS.positive : COLORS.negative, fontWeight: 600, fontSize: 14 }}>
+                  {remainingSurplus >= 0 ? `${formatCurrency(remainingSurplus)} unallocated` : `${formatCurrency(Math.abs(remainingSurplus))} over`}
+                </div>
+              </div>
+              
+              <div style={{ height: 8, background: COLORS.border, borderRadius: 4, marginBottom: 24, display: 'flex', overflow: 'hidden' }}>
+                <div style={{ width: `${(helocExtra / BASELINE.monthlySurplus) * 100}%`, background: COLORS.heloc }} />
+                <div style={{ width: `${(retirementExtra / BASELINE.monthlySurplus) * 100}%`, background: COLORS.retirement }} />
+                <div style={{ width: `${(emergencyExtra / BASELINE.monthlySurplus) * 100}%`, background: COLORS.emergency }} />
+                <div style={{ width: `${(educationExtra / BASELINE.monthlySurplus) * 100}%`, background: COLORS.education }} />
+              </div>
+
+              {[
+                { label: 'HELOC Extra', value: helocExtra, setter: setHelocExtra, color: COLORS.heloc, max: 3000 },
+                { label: 'Retirement Extra', value: retirementExtra, setter: setRetirementExtra, color: COLORS.retirement, max: 2000 },
+                { label: 'Emergency Fund', value: emergencyExtra, setter: setEmergencyExtra, color: COLORS.emergency, max: 1000 },
+                { label: '529 Education', value: educationExtra, setter: setEducationExtra, color: COLORS.education, max: 1000 },
+              ].map(s => (
+                <div key={s.label} style={{ marginBottom: 20 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ color: COLORS.text, fontWeight: 500 }}>{s.label}</span>
+                    <span style={{ color: s.color, fontWeight: 700 }}>{formatCurrency(s.value)}/mo</span>
+                  </div>
+                  <input type="range" min="0" max={s.max} step="50" value={s.value} onChange={e => s.setter(Number(e.target.value))}
+                    style={{ width: '100%', accentColor: s.color }} />
+                </div>
+              ))}
+            </div>
+
+            {/* Projection Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
+              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.heloc}` }}>
+                <h4 style={{ margin: '0 0 16px 0', color: COLORS.heloc }}>🏦 HELOC Payoff</h4>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Payoff Date</span><span style={{ fontWeight: 600 }}>{helocWithExtra.payoffDate}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Months</span><span style={{ fontWeight: 600 }}>{helocWithExtra.months}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: COLORS.textLight }}>Interest Saved</span><span style={{ fontWeight: 600, color: COLORS.positive }}>{formatCurrency(interestSaved)}</span></div>
+              </div>
+
+              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.retirement}` }}>
+                <h4 style={{ margin: '0 0 16px 0', color: COLORS.retirement }}>📈 Retirement at 60</h4>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Projected</span><span style={{ fontWeight: 600 }}>{formatCurrency(retirementProjection.finalBalance)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Monthly Contrib</span><span style={{ fontWeight: 600 }}>{formatCurrency(monthlyRetirement)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: COLORS.textLight }}>vs Target</span><span style={{ fontWeight: 600, color: retirementProjection.finalBalance >= BASELINE.retirementTarget ? COLORS.positive : COLORS.warning }}>{retirementProjection.finalBalance >= BASELINE.retirementTarget ? '+' : ''}{formatCurrency(retirementProjection.finalBalance - BASELINE.retirementTarget)}</span></div>
+              </div>
+
+              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.emergency}` }}>
+                <h4 style={{ margin: '0 0 16px 0', color: COLORS.emergency }}>🛡️ Emergency Fund</h4>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Current</span><span style={{ fontWeight: 600 }}>{formatCurrency(BASELINE.emergencyFund)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Target</span><span style={{ fontWeight: 600 }}>{formatCurrency(BASELINE.emergencyTarget)}</span></div>
+                <div style={{ height: 8, background: COLORS.border, borderRadius: 4, overflow: 'hidden', marginTop: 8 }}>
+                  <div style={{ width: `${Math.min(100, (BASELINE.emergencyFund / BASELINE.emergencyTarget) * 100)}%`, height: '100%', background: COLORS.emergency }} />
+                </div>
+                <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 4 }}>{Math.round((BASELINE.emergencyFund / BASELINE.emergencyTarget) * 100)}% funded</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      <footer style={{ padding: 20, textAlign: 'center', color: COLORS.textMuted, fontSize: 12, borderTop: `1px solid ${COLORS.border}` }}>
+        Goodlev Family Dashboard • YNAB + Claude
+      </footer>
+    </div>
+  );
+}
