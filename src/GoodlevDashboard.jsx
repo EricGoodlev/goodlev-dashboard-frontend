@@ -1,1289 +1,1054 @@
-"""
-Goodlev Financial Dashboard Backend
-FastAPI application with YNAB integration, auto-categorization, and analytics
-Includes: YNAB push functionality, SQLAlchemy for local storage
-"""
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, AreaChart, Area, ReferenceLine, Legend, PieChart, Pie, Cell } from 'recharts';
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Header
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
-from datetime import datetime, date, timedelta
-from contextlib import asynccontextmanager
-import os
-import httpx
-import secrets
-import json
-import re
-from decimal import Decimal
-from collections import defaultdict
+// =============================================================================
+// DESIGN TOKENS - Original Goodlev Design (Navy + Gold)
+// =============================================================================
+const COLORS = {
+  primary: '#0F2942',
+  primaryLight: '#1A3A5C',
+  primaryDark: '#0A1F33',
+  accent: '#D4A84B',
+  accentLight: '#E8C97D',
+  positive: '#2ECC71',
+  positiveLight: '#A3E4B7',
+  negative: '#E74C3C',
+  negativeLight: '#F5B7B1',
+  warning: '#F39C12',
+  warningLight: '#FAD7A0',
+  plan: '#3498DB',
+  actual: '#2ECC71',
+  heloc: '#E74C3C',
+  retirement: '#2ECC71',
+  education: '#3498DB',
+  emergency: '#F39C12',
+  vacation: '#9B59B6',
+  bg: '#F8F9FA',
+  bgCard: '#FFFFFF',
+  text: '#2C3E50',
+  textLight: '#7F8C8D',
+  textMuted: '#95A5A6',
+  border: '#E8ECF0',
+};
 
-# SQLAlchemy imports
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Float
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+const CHART_COLORS = ['#3498DB', '#2ECC71', '#E74C3C', '#F39C12', '#9B59B6', '#1ABC9C', '#E91E63', '#00BCD4'];
 
-# =============================================================================
-# DATABASE SETUP (SQLAlchemy)
-# =============================================================================
+// =============================================================================
+// BASELINE DATA (Verified Dec 2025)
+// =============================================================================
+const BASELINE = {
+  monthlyIncome: 22625,
+  monthlyBudgetedExpenses: 18703,
+  monthlySurplus: 3922,
+  totalRetirement: 645449,
+  helocBalance: 275809,
+  helocRate: 0.0632,
+  helocPayment: 1546,
+  emergencyFund: 24049,
+  emergencyTarget: 56000,
+  balance529: 85747,
+  totalAnnualRetirement: 41225,
+  ericAge: 40,
+  retirementTarget: 4000000,
+};
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./goodlev.db")
+// Family context for AI
+const FAMILY_CONTEXT = `
+GOODLEV FAMILY FINANCIAL CONTEXT:
+- Eric (40) healthcare professional at Fox Chase Cancer Center (80% time)
+- Lauren (42) clergy at Beth David Reform Congregation
+- Three children: ages 7, 6, 6 (twins)
+- Monthly expenses: $18,703 gross ($18,415 recurring + $288 temp)
+- Monthly surplus: $3,922
+- HELOC: ~$275K at 6.32%, draw period ends Jan 2032
+- Retirement contributions: $41,225/year (already exceeds $4M target at 60)
+- Therapy costs: ~$3K/month gross for eldest (giftedness + autism)
+- "Twin Tuition Crunch": All 3 kids in college 2037-2039
+`;
 
-# Handle Railway's postgres:// vs postgresql://
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+// =============================================================================
+// UTILITIES
+// =============================================================================
+const formatCurrency = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value || 0);
+const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+const formatPercent = (value) => `${(value * 100).toFixed(1)}%`;
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-
-class CategoryRule(Base):
-    """Local category rules (from Monarch history)"""
-    __tablename__ = "category_rules"
+// =============================================================================
+// LOGIN SCREEN (Password Only - Original Design)
+// =============================================================================
+function LoginScreen({ onLogin }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
     
-    id = Column(Integer, primary_key=True, index=True)
-    payee_pattern = Column(String(255), index=True)  # Lowercase pattern to match
-    category_name = Column(String(255))  # Target category name
-    priority = Column(Integer, default=0)  # Higher = more specific
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class CategoryOverride(Base):
-    """User-specified category overrides (takes precedence over rules)"""
-    __tablename__ = "category_overrides"
+    const correctPassword = import.meta.env.VITE_DASHBOARD_PASSWORD;
+    const apiUrl = import.meta.env.VITE_API_URL || '';
     
-    id = Column(Integer, primary_key=True, index=True)
-    transaction_id = Column(String(255), unique=True, index=True)  # YNAB transaction ID
-    category_id = Column(String(255))  # YNAB category ID
-    category_name = Column(String(255))  # Human readable
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class BudgetTarget(Base):
-    """Monthly budget targets by category"""
-    __tablename__ = "budget_targets"
+    // If API URL configured, verify with backend
+    if (apiUrl) {
+      try {
+        const res = await fetch(`${apiUrl}/health`);
+        if (!res.ok) throw new Error('API unavailable');
+      } catch (err) {
+        // API check failed, but still allow local password
+        console.warn('API check failed:', err);
+      }
+    }
     
-    id = Column(Integer, primary_key=True, index=True)
-    category_name = Column(String(255), index=True)
-    monthly_target = Column(Float)
-    is_income = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-# Create tables
-Base.metadata.create_all(bind=engine)
-
-
-def get_db():
-    """Dependency to get database session"""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-# =============================================================================
-# APP SETUP
-# =============================================================================
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan handler"""
-    print("🚀 Goodlev Backend starting up...")
-    # Initialize default rules if empty
-    db = SessionLocal()
-    if db.query(CategoryRule).count() == 0:
-        print("📋 Loading default merchant rules...")
-        load_default_rules(db)
-    db.close()
-    yield
-    print("👋 Goodlev Backend shutting down...")
-
-
-app = FastAPI(
-    title="Goodlev Financial Dashboard API",
-    description="YNAB integration with auto-categorization and financial analytics",
-    version="2.0.0",
-    lifespan=lifespan,
-)
-
-# CORS
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins + ["*"],  # Allow all for development
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Security
-security = HTTPBasic()
-
-def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
-    """Verify basic auth credentials"""
-    correct_username = os.getenv("DASHBOARD_USERNAME", "goodlev")
-    correct_password = os.getenv("DASHBOARD_PASSWORD", "changeme")
-    
-    is_correct_username = secrets.compare_digest(credentials.username, correct_username)
-    is_correct_password = secrets.compare_digest(credentials.password, correct_password)
-    
-    if not (is_correct_username and is_correct_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    return credentials.username
-
-
-def get_api_key(x_api_key: Optional[str] = Header(None)):
-    """Optional API key authentication"""
-    expected_key = os.getenv("API_KEY")
-    if expected_key and x_api_key != expected_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return x_api_key
-
-
-# =============================================================================
-# YNAB CLIENT
-# =============================================================================
-
-class YNABClient:
-    """YNAB API client"""
-    
-    BASE_URL = "https://api.ynab.com/v1"
-    
-    def __init__(self, access_token: str):
-        self.access_token = access_token
-        self.headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
-        }
-    
-    async def _request(self, method: str, endpoint: str, data: dict = None) -> dict:
-        """Make API request"""
-        async with httpx.AsyncClient() as client:
-            url = f"{self.BASE_URL}{endpoint}"
-            response = await client.request(
-                method=method,
-                url=url,
-                headers=self.headers,
-                json=data,
-                timeout=30.0
-            )
-            
-            if response.status_code == 401:
-                raise HTTPException(status_code=401, detail="Invalid YNAB access token")
-            elif response.status_code == 404:
-                raise HTTPException(status_code=404, detail="YNAB resource not found")
-            elif response.status_code >= 400:
-                raise HTTPException(status_code=response.status_code, detail=response.text)
-            
-            return response.json()
-    
-    async def get_budgets(self) -> dict:
-        """Get all budgets"""
-        return await self._request("GET", "/budgets")
-    
-    async def get_budget(self, budget_id: str = "last-used") -> dict:
-        """Get budget details"""
-        return await self._request("GET", f"/budgets/{budget_id}")
-    
-    async def get_accounts(self, budget_id: str = "last-used") -> dict:
-        """Get all accounts"""
-        return await self._request("GET", f"/budgets/{budget_id}/accounts")
-    
-    async def get_categories(self, budget_id: str = "last-used") -> dict:
-        """Get all categories"""
-        return await self._request("GET", f"/budgets/{budget_id}/categories")
-    
-    async def get_transactions(
-        self, 
-        budget_id: str = "last-used",
-        since_date: str = None,
-        account_id: str = None,
-        category_id: str = None
-    ) -> dict:
-        """Get transactions with optional filters"""
-        endpoint = f"/budgets/{budget_id}/transactions"
-        params = []
-        if since_date:
-            params.append(f"since_date={since_date}")
-        if params:
-            endpoint += "?" + "&".join(params)
-        return await self._request("GET", endpoint)
-    
-    async def get_uncategorized_transactions(
-        self,
-        budget_id: str = "last-used",
-        since_date: str = None
-    ) -> List[dict]:
-        """Get transactions without categories (excluding transfers)"""
-        result = await self.get_transactions(budget_id, since_date)
-        transactions = result.get("data", {}).get("transactions", [])
+    if (password === correctPassword) {
+      sessionStorage.setItem('dashboard_authenticated', 'true');
+      sessionStorage.setItem('dashboard_password', password);
+      onLogin();
+    } else {
+      setError('Incorrect password');
+      setPassword('');
+    }
+    setLoading(false);
+  };
+  
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: `linear-gradient(135deg, ${COLORS.primary} 0%, ${COLORS.primaryDark} 100%)`,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+    }}>
+      <div style={{
+        background: COLORS.bgCard,
+        borderRadius: 16,
+        padding: 40,
+        width: '100%',
+        maxWidth: 400,
+        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+      }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🏦</div>
+          <h1 style={{ margin: 0, fontSize: 24, color: COLORS.primary, fontWeight: 700 }}>
+            Goodlev Family Dashboard
+          </h1>
+          <p style={{ margin: '8px 0 0 0', color: COLORS.textMuted, fontSize: 14 }}>
+            Enter password to continue
+          </p>
+        </div>
         
-        uncategorized = []
-        for t in transactions:
-            # Skip transfers (payee starts with "Transfer")
-            if t.get("payee_name", "").startswith("Transfer"):
-                continue
-            # Skip if has category
-            if t.get("category_id") and t.get("category_name") != "Uncategorized":
-                continue
-            # Skip Starting Balance
-            if "Starting Balance" in t.get("payee_name", ""):
-                continue
-            uncategorized.append(t)
-        
-        return uncategorized
-    
-    async def update_transaction(
-        self,
-        budget_id: str,
-        transaction_id: str,
-        category_id: str = None,
-        payee_name: str = None,
-        memo: str = None,
-        flag_color: str = None
-    ) -> dict:
-        """Update a single transaction in YNAB"""
-        data = {"transaction": {}}
-        
-        if category_id:
-            data["transaction"]["category_id"] = category_id
-        if payee_name:
-            data["transaction"]["payee_name"] = payee_name
-        if memo is not None:
-            data["transaction"]["memo"] = memo
-        if flag_color:
-            data["transaction"]["flag_color"] = flag_color
-        
-        return await self._request(
-            "PUT",
-            f"/budgets/{budget_id}/transactions/{transaction_id}",
-            data
-        )
-    
-    async def update_transactions_bulk(
-        self,
-        budget_id: str,
-        transactions: List[dict]
-    ) -> dict:
-        """Bulk update transactions in YNAB
-        
-        Each transaction dict should have:
-        - id: transaction ID
-        - category_id: (optional) new category
-        - payee_name: (optional) new payee
-        - memo: (optional) new memo
-        """
-        data = {"transactions": transactions}
-        return await self._request(
-            "PATCH",
-            f"/budgets/{budget_id}/transactions",
-            data
-        )
-
-
-def get_ynab_client() -> YNABClient:
-    """Get YNAB client from environment"""
-    token = os.getenv("YNAB_ACCESS_TOKEN")
-    if not token:
-        raise HTTPException(status_code=500, detail="YNAB_ACCESS_TOKEN not configured")
-    return YNABClient(token)
-
-
-# =============================================================================
-# MERCHANT RULES (from Monarch history)
-# =============================================================================
-
-DEFAULT_MERCHANT_RULES = {
-    # Housing
-    'firstrust': 'Mortgage',
-    'firstrust bank': 'Mortgage',
-    'pnc': 'HELOC',
-    'pnc bank': 'HELOC',
-    'pnc mortgage': 'HELOC',
-    
-    # Healthcare/Therapy  
-    'gruenberg': 'Therapy',
-    'gruenberg and summers': 'Therapy',
-    'main line int': 'Therapy',
-    'main line integrated': 'Therapy',
-    'cvs': 'Medical',
-    'cvs pharmacy': 'Medical',
-    'rite aid': 'Medical',
-    'walgreens': 'Medical',
-    
-    # Transportation
-    'volvo': 'Auto Payment',
-    'hyundai': 'Auto Payment',
-    'kia': 'Auto Payment',
-    'geico': 'Insurance',
-    'shell': 'Gas',
-    'wawa': 'Gas',
-    'exxon': 'Gas',
-    'sunoco': 'Gas',
-    'bp': 'Gas',
-    'speedway': 'Gas',
-    'uber': 'Taxi & Ride Shares',
-    'lyft': 'Taxi & Ride Shares',
-    'parkwhiz': 'Parking & Tolls',
-    'ez pass': 'Parking & Tolls',
-    'pa turnpike': 'Parking & Tolls',
-    
-    # Childcare
-    'right at school': 'Child Care',
-    'lineleader': 'Child Care',
-    'greenlight': 'Child Care',
-    'camp kef': 'Child Activities',
-    'camp ramah': 'Child Activities',
-    
-    # Utilities
-    'peco': 'Gas & Electric',
-    'aqua': 'Gas & Electric',
-    'aqua pennsylvania': 'Gas & Electric',
-    'comcast': 'Internet & Cable',
-    'xfinity': 'Internet & Cable',
-    'verizon': 'Internet & Cable',
-    
-    # Home
-    'simplisafe': 'Home Security',
-    'homeserve': 'Insurance',
-    
-    # Food
-    'whole foods': 'Groceries',
-    'trader joe': 'Groceries',
-    "trader joe's": 'Groceries',
-    'wegmans': 'Groceries',
-    'giant': 'Groceries',
-    'acme': 'Groceries',
-    'costco': 'Groceries',
-    "mom's organic": 'Groceries',
-    'target': 'Shopping',
-    'amazon': 'Shopping',
-    'amazon prime': 'Shopping',
-    'starbucks': 'Coffee Shops',
-    'dunkin': 'Coffee Shops',
-    'wawa coffee': 'Coffee Shops',
-    
-    # Fitness
-    'crossfit': 'Fitness',
-    'planet fitness': 'Fitness',
-    'wodify': 'Fitness',
-    
-    # Insurance
-    'equitable': 'Insurance',
-    'chubb': 'Insurance',
-    'standard ins': 'Insurance',
-    
-    # Streaming
-    'netflix': 'Streaming',
-    'spotify': 'Streaming',
-    'hulu': 'Streaming',
-    'disney+': 'Streaming',
-    'disney plus': 'Streaming',
-    'apple tv': 'Streaming',
-    'hbo': 'Streaming',
-    'amazon prime video': 'Streaming',
-    
-    # Income
-    'fox chase': 'Paychecks',
-    'temple health': 'Paychecks',
-    'beth david': 'Paychecks',
-    'bdrc': 'Paychecks',
+        <form onSubmit={handleSubmit}>
+          <input
+            type="password"
+            value={password}
+            onChange={e => { setPassword(e.target.value); setError(''); }}
+            placeholder="Password"
+            autoFocus
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              fontSize: 16,
+              border: `2px solid ${error ? COLORS.negative : COLORS.border}`,
+              borderRadius: 8,
+              outline: 'none',
+              boxSizing: 'border-box',
+              transition: 'border-color 0.2s',
+            }}
+          />
+          
+          {error && (
+            <p style={{ color: COLORS.negative, fontSize: 13, margin: '8px 0 0 0' }}>{error}</p>
+          )}
+          
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              marginTop: 16,
+              fontSize: 16,
+              fontWeight: 600,
+              color: '#FFFFFF',
+              background: loading ? COLORS.textMuted : COLORS.primary,
+              border: 'none',
+              borderRadius: 8,
+              cursor: loading ? 'wait' : 'pointer',
+              transition: 'background 0.2s',
+            }}
+          >
+            {loading ? 'Connecting...' : 'Enter Dashboard'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
 }
 
+// =============================================================================
+// CARD COMPONENT (Original Styling)
+// =============================================================================
+function Card({ title, children, action, style = {}, headerStyle = {} }) {
+  return (
+    <div style={{
+      background: COLORS.bgCard,
+      borderRadius: 12,
+      padding: 20,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+      border: `1px solid ${COLORS.border}`,
+      ...style,
+    }}>
+      {(title || action) && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, ...headerStyle }}>
+          {title && <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text }}>{title}</h3>}
+          {action}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
 
-def load_default_rules(db: Session):
-    """Load default merchant rules into database"""
-    for pattern, category in DEFAULT_MERCHANT_RULES.items():
-        rule = CategoryRule(
-            payee_pattern=pattern.lower(),
-            category_name=category,
-            priority=len(pattern)  # Longer patterns = more specific = higher priority
-        )
-        db.add(rule)
-    db.commit()
+// =============================================================================
+// METRIC CARD (Original Styling)
+// =============================================================================
+function MetricCard({ label, value, subValue, trend, color = COLORS.primary }) {
+  return (
+    <div style={{
+      background: COLORS.bgCard,
+      borderRadius: 10,
+      padding: 16,
+      border: `1px solid ${COLORS.border}`,
+    }}>
+      <p style={{ margin: 0, fontSize: 12, color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</p>
+      <p style={{ margin: '6px 0 0 0', fontSize: 24, fontWeight: 700, color }}>{value}</p>
+      {subValue && <p style={{ margin: '4px 0 0 0', fontSize: 12, color: COLORS.textLight }}>{subValue}</p>}
+      {trend !== undefined && (
+        <p style={{ margin: '4px 0 0 0', fontSize: 12, color: trend >= 0 ? COLORS.positive : COLORS.negative }}>
+          {trend >= 0 ? '↑' : '↓'} {Math.abs(trend).toFixed(1)}%
+        </p>
+      )}
+    </div>
+  );
+}
 
-
-def match_payee_to_category(payee_name: str, db: Session) -> Optional[str]:
-    """Match payee to category using rules"""
-    if not payee_name:
-        return None
-    
-    payee_lower = payee_name.lower()
-    
-    # Get all rules, ordered by priority (descending)
-    rules = db.query(CategoryRule).order_by(CategoryRule.priority.desc()).all()
-    
-    for rule in rules:
-        if rule.payee_pattern in payee_lower:
-            return rule.category_name
-    
-    return None
-
-
-# =============================================================================
-# PYDANTIC MODELS
-# =============================================================================
-
-class TransactionUpdate(BaseModel):
-    transaction_id: str
-    category_id: Optional[str] = None
-    category_name: Optional[str] = None
-    memo: Optional[str] = None
-
-
-class BulkCategorizeRequest(BaseModel):
-    dry_run: bool = True
-    days: int = 30
-
-
-class CategoryRuleCreate(BaseModel):
-    payee_pattern: str
-    category_name: str
-    priority: Optional[int] = None
-
-
-class BudgetTargetCreate(BaseModel):
-    category_name: str
-    monthly_target: float
-    is_income: bool = False
-
-
-# =============================================================================
-# TRANSACTION FILTERING HELPERS
-# =============================================================================
-
-def is_real_transaction(t: dict) -> bool:
-    """
-    Filter out non-real transactions that shouldn't count toward income/expenses.
-    
-    Excludes:
-    - Starting Balance (account initialization)
-    - Transfers between accounts (have transfer_account_id or payee starts with "Transfer")
-    - Reconciliation Balance Adjustments
-    """
-    payee = t.get("payee_name", "") or ""
-    
-    # Skip Starting Balance transactions
-    if "Starting Balance" in payee:
-        return False
-    
-    # Skip reconciliation adjustments
-    if "Reconciliation Balance Adjustment" in payee:
-        return False
-    
-    # Skip transfers between accounts (YNAB marks these with transfer_account_id)
-    if t.get("transfer_account_id"):
-        return False
-    
-    # Skip transfers (payee name pattern)
-    if payee.startswith("Transfer"):
-        return False
-    
-    return True
-
-
-def filter_real_transactions(transactions: list) -> list:
-    """Filter a list of transactions to only include real income/expenses."""
-    return [t for t in transactions if is_real_transaction(t)]
-
-
-# =============================================================================
-# HEALTH & INFO ENDPOINTS
-# =============================================================================
-
-@app.get("/")
-async def root():
-    return {
-        "status": "healthy",
-        "service": "goodlev-dashboard-api",
-        "version": "2.0.0",
-        "features": ["ynab", "autocategorize", "analytics", "push"]
+// =============================================================================
+// PERIOD SELECTOR
+// =============================================================================
+function PeriodSelector({ periodType, setPeriodType, selectedDate, setSelectedDate }) {
+  const navigate = (dir) => {
+    const d = new Date(selectedDate);
+    if (periodType === 'week') d.setDate(d.getDate() + dir * 7);
+    else if (periodType === 'month') d.setMonth(d.getMonth() + dir);
+    else d.setFullYear(d.getFullYear() + dir);
+    setSelectedDate(d);
+  };
+  
+  const getLabel = () => {
+    const d = new Date(selectedDate);
+    if (periodType === 'week') {
+      const start = new Date(d); start.setDate(d.getDate() - d.getDay());
+      const end = new Date(start); end.setDate(start.getDate() + 6);
+      return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
     }
+    if (periodType === 'month') return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    return d.getFullYear().toString();
+  };
+  
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {['week', 'month', 'year', 'ytd'].map(type => (
+          <button key={type} onClick={() => setPeriodType(type)} style={{
+            padding: '6px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: 'pointer',
+            border: `1px solid ${periodType === type ? COLORS.accent : COLORS.border}`,
+            background: periodType === type ? COLORS.accent : 'transparent',
+            color: periodType === type ? '#FFF' : COLORS.text,
+          }}>
+            {type === 'ytd' ? 'YTD' : type.charAt(0).toUpperCase() + type.slice(1)}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button onClick={() => navigate(-1)} style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${COLORS.border}`, background: 'transparent', cursor: 'pointer', fontSize: 14 }}>←</button>
+        <span style={{ fontWeight: 600, minWidth: 150, textAlign: 'center', color: COLORS.text }}>{getLabel()}</span>
+        <button onClick={() => navigate(1)} style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${COLORS.border}`, background: 'transparent', cursor: 'pointer', fontSize: 14 }}>→</button>
+      </div>
+    </div>
+  );
+}
 
-
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "ynab_configured": bool(os.getenv("YNAB_ACCESS_TOKEN")),
-        "database": "connected"
-    }
-
-
-# =============================================================================
-# YNAB DATA ENDPOINTS
-# =============================================================================
-
-@app.get("/api/budgets")
-async def get_budgets():
-    """Get all YNAB budgets"""
-    client = get_ynab_client()
-    return await client.get_budgets()
-
-
-@app.get("/api/budget")
-async def get_budget(budget_id: str = "last-used"):
-    """Get budget details"""
-    client = get_ynab_client()
-    return await client.get_budget(budget_id)
-
-
-@app.get("/api/accounts")
-async def get_accounts(budget_id: str = "last-used"):
-    """Get all accounts"""
-    client = get_ynab_client()
-    result = await client.get_accounts(budget_id)
+// =============================================================================
+// AI ADVISOR (Floating Chat)
+// =============================================================================
+function AIAdvisor({ isOpen, onClose, financialContext }) {
+  const [question, setQuestion] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  const suggestions = [
+    "Should I prioritize HELOC or retirement?",
+    "Am I on track for my goals?",
+    "How should I handle 3 kids in college?",
+    "What if therapy costs increase 10%?"
+  ];
+  
+  const askAI = async () => {
+    if (!question.trim() || loading) return;
+    setLoading(true);
+    const userMsg = question;
+    setQuestion('');
+    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     
-    # Add some computed fields
-    accounts = result.get("data", {}).get("accounts", [])
-    for acc in accounts:
-        # Convert milliunits to dollars
-        acc["balance_dollars"] = acc.get("balance", 0) / 1000
-        acc["cleared_balance_dollars"] = acc.get("cleared_balance", 0) / 1000
-    
-    return result
-
-
-@app.get("/api/categories")
-async def get_categories(budget_id: str = "last-used"):
-    """Get all categories"""
-    client = get_ynab_client()
-    return await client.get_categories(budget_id)
-
-
-@app.get("/api/transactions")
-async def get_transactions(
-    budget_id: str = "last-used",
-    days: int = 30,
-    since_date: Optional[str] = None,
-    exclude_transfers: bool = True,
-    exclude_starting_balance: bool = True
-):
-    """Get transactions with optional filtering.
-    
-    Args:
-        exclude_transfers: Filter out transfers between accounts (default: True)
-        exclude_starting_balance: Filter out Starting Balance entries (default: True)
-    """
-    client = get_ynab_client()
-    
-    if not since_date:
-        since_date = (date.today() - timedelta(days=days)).isoformat()
-    
-    result = await client.get_transactions(budget_id, since_date)
-    
-    # Get transactions
-    transactions = result.get("data", {}).get("transactions", [])
-    
-    # Apply filters if requested
-    if exclude_transfers or exclude_starting_balance:
-        filtered = []
-        for t in transactions:
-            payee = t.get("payee_name", "") or ""
-            
-            # Skip Starting Balance if excluded
-            if exclude_starting_balance and "Starting Balance" in payee:
-                continue
-            
-            # Skip Reconciliation Balance Adjustment
-            if exclude_starting_balance and "Reconciliation Balance Adjustment" in payee:
-                continue
-            
-            # Skip transfers if excluded
-            if exclude_transfers:
-                if t.get("transfer_account_id"):
-                    continue
-                if payee.startswith("Transfer"):
-                    continue
-            
-            filtered.append(t)
-        transactions = filtered
-    
-    # Convert milliunits and add computed fields
-    for t in transactions:
-        t["amount_dollars"] = t.get("amount", 0) / 1000
-    
-    # Return filtered result
-    result["data"]["transactions"] = transactions
-    return result
-
-
-# =============================================================================
-# AUTO-CATEGORIZATION ENDPOINTS
-# =============================================================================
-
-@app.get("/api/autocategorize/preview")
-async def preview_autocategorize(
-    budget_id: str = "last-used",
-    days: int = 30,
-    db: Session = Depends(get_db)
-):
-    """Preview what auto-categorization would do"""
-    client = get_ynab_client()
-    since_date = (date.today() - timedelta(days=days)).isoformat()
-    
-    # Get uncategorized transactions
-    uncategorized = await client.get_uncategorized_transactions(budget_id, since_date)
-    
-    # Get YNAB categories for mapping
-    cat_result = await client.get_categories(budget_id)
-    category_groups = cat_result.get("data", {}).get("category_groups", [])
-    
-    # Build category name -> ID map
-    category_map = {}
-    for group in category_groups:
-        for cat in group.get("categories", []):
-            category_map[cat["name"].lower()] = {
-                "id": cat["id"],
-                "name": cat["name"],
-                "group": group["name"]
-            }
-    
-    # Match transactions
-    would_categorize = []
-    no_match = []
-    no_category_in_ynab = []
-    
-    for t in uncategorized:
-        payee = t.get("payee_name", "")
-        matched_category = match_payee_to_category(payee, db)
-        
-        if matched_category:
-            # Check if category exists in YNAB
-            ynab_cat = category_map.get(matched_category.lower())
-            if ynab_cat:
-                would_categorize.append({
-                    "transaction_id": t["id"],
-                    "payee": payee,
-                    "amount": t.get("amount", 0) / 1000,
-                    "date": t.get("date"),
-                    "matched_category": matched_category,
-                    "ynab_category_id": ynab_cat["id"],
-                    "ynab_category_name": ynab_cat["name"]
-                })
-            else:
-                no_category_in_ynab.append({
-                    "payee": payee,
-                    "amount": t.get("amount", 0) / 1000,
-                    "date": t.get("date"),
-                    "matched_category": matched_category
-                })
-        else:
-            no_match.append({
-                "transaction_id": t["id"],
-                "payee": payee,
-                "amount": t.get("amount", 0) / 1000,
-                "date": t.get("date")
-            })
-    
-    return {
-        "summary": {
-            "total_uncategorized": len(uncategorized),
-            "would_categorize": len(would_categorize),
-            "no_match": len(no_match),
-            "missing_ynab_category": len(no_category_in_ynab)
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY || '',
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
         },
-        "would_categorize": would_categorize,
-        "no_match": no_match,
-        "no_category_in_ynab": no_category_in_ynab
-    }
-
-
-@app.post("/api/autocategorize/run")
-async def run_autocategorize(
-    request: BulkCategorizeRequest,
-    budget_id: str = "last-used",
-    db: Session = Depends(get_db)
-):
-    """Run auto-categorization (with YNAB push)"""
-    client = get_ynab_client()
-    since_date = (date.today() - timedelta(days=request.days)).isoformat()
-    
-    # Get preview first
-    preview = await preview_autocategorize(budget_id, request.days, db)
-    
-    if request.dry_run:
-        return {
-            "dry_run": True,
-            "message": "No changes made. Set dry_run=false to apply.",
-            **preview
-        }
-    
-    # Apply categorizations via YNAB API
-    to_update = preview["would_categorize"]
-    
-    if not to_update:
-        return {
-            "dry_run": False,
-            "updated": 0,
-            "message": "No transactions to categorize"
-        }
-    
-    # Build bulk update payload
-    transactions_to_update = [
-        {
-            "id": t["transaction_id"],
-            "category_id": t["ynab_category_id"]
-        }
-        for t in to_update
-    ]
-    
-    # Push to YNAB
-    result = await client.update_transactions_bulk(budget_id, transactions_to_update)
-    
-    return {
-        "dry_run": False,
-        "updated": len(to_update),
-        "message": f"Successfully categorized {len(to_update)} transactions",
-        "transactions": to_update,
-        "ynab_response": result
-    }
-
-
-@app.get("/api/autocategorize/rules")
-async def get_rules(db: Session = Depends(get_db)):
-    """Get all category rules"""
-    rules = db.query(CategoryRule).order_by(CategoryRule.priority.desc()).all()
-    return {
-        "count": len(rules),
-        "rules": [
-            {
-                "id": r.id,
-                "payee_pattern": r.payee_pattern,
-                "category_name": r.category_name,
-                "priority": r.priority
-            }
-            for r in rules
-        ]
-    }
-
-
-@app.post("/api/autocategorize/rules")
-async def add_rule(rule: CategoryRuleCreate, db: Session = Depends(get_db)):
-    """Add a new category rule"""
-    priority = rule.priority if rule.priority else len(rule.payee_pattern)
-    
-    new_rule = CategoryRule(
-        payee_pattern=rule.payee_pattern.lower(),
-        category_name=rule.category_name,
-        priority=priority
-    )
-    db.add(new_rule)
-    db.commit()
-    db.refresh(new_rule)
-    
-    return {"message": "Rule added", "rule": {
-        "id": new_rule.id,
-        "payee_pattern": new_rule.payee_pattern,
-        "category_name": new_rule.category_name,
-        "priority": new_rule.priority
-    }}
-
-
-@app.delete("/api/autocategorize/rules/{rule_id}")
-async def delete_rule(rule_id: int, db: Session = Depends(get_db)):
-    """Delete a category rule"""
-    rule = db.query(CategoryRule).filter(CategoryRule.id == rule_id).first()
-    if not rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
-    
-    db.delete(rule)
-    db.commit()
-    return {"message": "Rule deleted", "id": rule_id}
-
-
-# =============================================================================
-# SINGLE TRANSACTION UPDATE (YNAB PUSH)
-# =============================================================================
-
-@app.put("/api/transactions/{transaction_id}")
-async def update_transaction(
-    transaction_id: str,
-    update: TransactionUpdate,
-    budget_id: str = "last-used",
-    db: Session = Depends(get_db)
-):
-    """Update a single transaction in YNAB"""
-    client = get_ynab_client()
-    
-    # If category_name provided, look up category_id
-    category_id = update.category_id
-    if update.category_name and not category_id:
-        cat_result = await client.get_categories(budget_id)
-        category_groups = cat_result.get("data", {}).get("category_groups", [])
-        
-        for group in category_groups:
-            for cat in group.get("categories", []):
-                if cat["name"].lower() == update.category_name.lower():
-                    category_id = cat["id"]
-                    break
-            if category_id:
-                break
-        
-        if not category_id:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Category '{update.category_name}' not found in YNAB"
-            )
-    
-    # Push to YNAB
-    result = await client.update_transaction(
-        budget_id=budget_id,
-        transaction_id=transaction_id,
-        category_id=category_id,
-        memo=update.memo
-    )
-    
-    # Store override locally
-    if category_id:
-        override = db.query(CategoryOverride).filter(
-            CategoryOverride.transaction_id == transaction_id
-        ).first()
-        
-        if override:
-            override.category_id = category_id
-            override.category_name = update.category_name or ""
-        else:
-            override = CategoryOverride(
-                transaction_id=transaction_id,
-                category_id=category_id,
-                category_name=update.category_name or ""
-            )
-            db.add(override)
-        db.commit()
-    
-    return {
-        "message": "Transaction updated",
-        "transaction_id": transaction_id,
-        "category_id": category_id,
-        "ynab_response": result
-    }
-
-
-# =============================================================================
-# ANALYTICS ENDPOINTS
-# =============================================================================
-
-@app.get("/api/analytics/monthly-summary")
-async def get_monthly_summary(
-    budget_id: str = "last-used",
-    year: int = None,
-    month: int = None
-):
-    """Get monthly spending summary by category"""
-    client = get_ynab_client()
-    
-    # Default to current month
-    today = date.today()
-    year = year or today.year
-    month = month or today.month
-    
-    # Calculate date range
-    start_date = date(year, month, 1)
-    if month == 12:
-        end_date = date(year + 1, 1, 1) - timedelta(days=1)
-    else:
-        end_date = date(year, month + 1, 1) - timedelta(days=1)
-    
-    # Get transactions
-    result = await client.get_transactions(budget_id, start_date.isoformat())
-    transactions = result.get("data", {}).get("transactions", [])
-    
-    # Filter out Starting Balance, transfers, and reconciliation adjustments
-    real_transactions = filter_real_transactions(transactions)
-    
-    # Filter to month and aggregate
-    by_category = defaultdict(lambda: {"amount": 0, "count": 0, "transactions": []})
-    total_income = 0
-    total_expense = 0
-    
-    for t in real_transactions:
-        t_date = datetime.strptime(t["date"], "%Y-%m-%d").date()
-        if t_date < start_date or t_date > end_date:
-            continue
-        
-        amount = t.get("amount", 0) / 1000  # Convert milliunits
-        category = t.get("category_name") or "Uncategorized"
-        
-        by_category[category]["amount"] += amount
-        by_category[category]["count"] += 1
-        by_category[category]["transactions"].append({
-            "id": t["id"],
-            "payee": t.get("payee_name"),
-            "amount": amount,
-            "date": t["date"]
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          system: `You are a knowledgeable financial advisor for the Goodlev family. Be specific with numbers. Keep responses to 2-3 paragraphs. Consider: 3 kids overlapping in college 2037-2039, eldest has autism (therapy ~$3K/mo), HELOC draw ends Jan 2032.`,
+          messages: [{ role: 'user', content: `${financialContext}\n\nQUESTION: ${userMsg}` }]
         })
-        
-        if amount > 0:
-            total_income += amount
-        else:
-            total_expense += abs(amount)
-    
-    # Sort by absolute amount
-    sorted_categories = sorted(
-        by_category.items(),
-        key=lambda x: abs(x[1]["amount"]),
-        reverse=True
-    )
-    
-    return {
-        "year": year,
-        "month": month,
-        "total_income": round(total_income, 2),
-        "total_expense": round(total_expense, 2),
-        "net": round(total_income - total_expense, 2),
-        "categories": [
-            {
-                "name": name,
-                "amount": round(data["amount"], 2),
-                "count": data["count"],
-                "transactions": data["transactions"][:5]  # Top 5 only
-            }
-            for name, data in sorted_categories
-        ]
+      });
+      const data = await response.json();
+      setMessages(prev => [...prev, { role: 'assistant', content: data.content?.[0]?.text || 'Unable to get response.' }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Error connecting to AI. Make sure VITE_ANTHROPIC_API_KEY is set.' }]);
     }
+    setLoading(false);
+  };
+  
+  if (!isOpen) return null;
+  
+  return (
+    <div style={{
+      position: 'fixed', bottom: 80, right: 24, width: 380, maxHeight: '65vh',
+      background: COLORS.bgCard, borderRadius: 16, boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+      display: 'flex', flexDirection: 'column', zIndex: 1000, border: `1px solid ${COLORS.border}`,
+    }}>
+      <div style={{ padding: 16, background: COLORS.primary, color: '#FFF', borderRadius: '16px 16px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>🤖 Financial Advisor</span>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#FFF', fontSize: 18, cursor: 'pointer' }}>×</button>
+      </div>
+      
+      <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 300 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: 'center', padding: 16 }}>
+            <p style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 16 }}>Ask me anything about your finances!</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {suggestions.map(s => (
+                <button key={s} onClick={() => setQuestion(s)} style={{
+                  padding: '10px 12px', background: COLORS.bg, border: `1px solid ${COLORS.border}`,
+                  borderRadius: 8, fontSize: 12, cursor: 'pointer', textAlign: 'left', color: COLORS.text,
+                }}>{s}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} style={{
+            padding: 12, borderRadius: 12, fontSize: 13, lineHeight: 1.5, maxWidth: '85%',
+            background: m.role === 'user' ? COLORS.accent : COLORS.bg,
+            color: m.role === 'user' ? '#FFF' : COLORS.text,
+            alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+          }}>{m.content}</div>
+        ))}
+        {loading && <div style={{ color: COLORS.textMuted, fontSize: 13, padding: 8 }}>Thinking...</div>}
+      </div>
+      
+      <div style={{ padding: 12, borderTop: `1px solid ${COLORS.border}`, display: 'flex', gap: 8 }}>
+        <input value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => e.key === 'Enter' && askAI()}
+          placeholder="Ask a question..." style={{ flex: 1, padding: '10px 14px', border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14 }} />
+        <button onClick={askAI} disabled={loading} style={{
+          padding: '10px 16px', background: COLORS.accent, color: '#FFF', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer'
+        }}>→</button>
+      </div>
+    </div>
+  );
+}
 
+// =============================================================================
+// AUTO-CATEGORIZE PANEL
+// =============================================================================
+function AutoCategorizePanel({ apiUrl, onRefresh }) {
+  const [preview, setPreview] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [result, setResult] = useState(null);
+  const [days, setDays] = useState(30);
+  
+  const fetchPreview = async () => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await fetch(`${apiUrl}/api/autocategorize/preview?days=${days}`);
+      setPreview(await res.json());
+    } catch (err) { console.error(err); }
+    setLoading(false);
+  };
+  
+  const applyCategories = async () => {
+    if (!window.confirm(`Categorize ${preview.summary.would_categorize} transactions in YNAB?`)) return;
+    setApplying(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/autocategorize/run?budget_id=last-used`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: false, days })
+      });
+      const data = await res.json();
+      setResult(data);
+      if (data.updated > 0) onRefresh?.();
+    } catch (err) { console.error(err); }
+    setApplying(false);
+  };
+  
+  return (
+    <Card title="🤖 Auto-Categorize Transactions">
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select value={days} onChange={e => setDays(Number(e.target.value))} style={{ padding: '8px 12px', border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 13 }}>
+          <option value={7}>Last 7 days</option>
+          <option value={14}>Last 14 days</option>
+          <option value={30}>Last 30 days</option>
+          <option value={60}>Last 60 days</option>
+        </select>
+        <button onClick={fetchPreview} disabled={loading} style={{ padding: '8px 16px', background: COLORS.primary, color: '#FFF', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
+          {loading ? 'Scanning...' : '🔍 Preview'}
+        </button>
+        {preview?.summary?.would_categorize > 0 && (
+          <button onClick={applyCategories} disabled={applying} style={{ padding: '8px 16px', background: COLORS.positive, color: '#FFF', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
+            {applying ? 'Applying...' : `✓ Apply ${preview.summary.would_categorize} to YNAB`}
+          </button>
+        )}
+      </div>
+      
+      {result && (
+        <div style={{ padding: 12, background: COLORS.positiveLight, borderRadius: 8, marginBottom: 16 }}>
+          <p style={{ margin: 0, color: COLORS.positive, fontWeight: 600 }}>✓ Categorized {result.updated} transactions!</p>
+        </div>
+      )}
+      
+      {preview && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+            {[
+              { label: 'Uncategorized', value: preview.summary.total_uncategorized, color: COLORS.textMuted },
+              { label: 'Can Auto-Cat', value: preview.summary.would_categorize, color: COLORS.positive },
+              { label: 'No Match', value: preview.summary.no_match, color: COLORS.warning },
+              { label: 'Missing Category', value: preview.summary.missing_ynab_category, color: COLORS.negative },
+            ].map(stat => (
+              <div key={stat.label} style={{ padding: 12, background: COLORS.bg, borderRadius: 8, textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: stat.color }}>{stat.value}</p>
+                <p style={{ margin: '4px 0 0 0', fontSize: 11, color: COLORS.textMuted }}>{stat.label}</p>
+              </div>
+            ))}
+          </div>
+          
+          {preview.would_categorize?.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <h4 style={{ fontSize: 13, marginBottom: 8, color: COLORS.positive }}>✓ Ready to Categorize ({preview.would_categorize.length})</h4>
+              <div style={{ maxHeight: 180, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead><tr style={{ background: COLORS.bg }}>
+                    <th style={{ padding: 8, textAlign: 'left' }}>Date</th>
+                    <th style={{ padding: 8, textAlign: 'left' }}>Payee</th>
+                    <th style={{ padding: 8, textAlign: 'right' }}>Amount</th>
+                    <th style={{ padding: 8, textAlign: 'left' }}>→ Category</th>
+                  </tr></thead>
+                  <tbody>
+                    {preview.would_categorize.slice(0, 20).map((t, i) => (
+                      <tr key={i} style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                        <td style={{ padding: 8 }}>{formatDate(t.date)}</td>
+                        <td style={{ padding: 8 }}>{t.payee}</td>
+                        <td style={{ padding: 8, textAlign: 'right', color: t.amount < 0 ? COLORS.negative : COLORS.positive }}>{formatCurrency(Math.abs(t.amount))}</td>
+                        <td style={{ padding: 8, color: COLORS.positive, fontWeight: 500 }}>{t.ynab_category_name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          
+          {preview.no_match?.length > 0 && (
+            <div>
+              <h4 style={{ fontSize: 13, marginBottom: 8, color: COLORS.warning }}>⚠ No Matching Rule ({preview.no_match.length})</h4>
+              <div style={{ maxHeight: 120, overflowY: 'auto', border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead><tr style={{ background: COLORS.bg }}>
+                    <th style={{ padding: 8, textAlign: 'left' }}>Date</th>
+                    <th style={{ padding: 8, textAlign: 'left' }}>Payee</th>
+                    <th style={{ padding: 8, textAlign: 'right' }}>Amount</th>
+                  </tr></thead>
+                  <tbody>
+                    {preview.no_match.slice(0, 10).map((t, i) => (
+                      <tr key={i} style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                        <td style={{ padding: 8 }}>{formatDate(t.date)}</td>
+                        <td style={{ padding: 8 }}>{t.payee}</td>
+                        <td style={{ padding: 8, textAlign: 'right' }}>{formatCurrency(Math.abs(t.amount))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+      
+      {!preview && !loading && (
+        <p style={{ color: COLORS.textMuted, fontSize: 13 }}>Click Preview to scan uncategorized transactions and apply Monarch rules.</p>
+      )}
+    </Card>
+  );
+}
 
-@app.get("/api/analytics/spending-trends")
-async def get_spending_trends(
-    budget_id: str = "last-used",
-    months: int = 6,
-    db: Session = Depends(get_db)
-):
-    """Get spending trends over time"""
-    client = get_ynab_client()
-    
-    # Calculate date range
-    today = date.today()
-    start_date = date(today.year, today.month, 1) - timedelta(days=30 * months)
-    
-    result = await client.get_transactions(budget_id, start_date.isoformat())
-    transactions = result.get("data", {}).get("transactions", [])
-    
-    # Filter out Starting Balance, transfers, and reconciliation adjustments
-    real_transactions = filter_real_transactions(transactions)
-    
-    # Aggregate by month and category
-    monthly_data = defaultdict(lambda: defaultdict(float))
-    
-    for t in real_transactions:
-        t_date = datetime.strptime(t["date"], "%Y-%m-%d").date()
-        month_key = f"{t_date.year}-{t_date.month:02d}"
-        category = t.get("category_name") or "Uncategorized"
-        amount = t.get("amount", 0) / 1000
-        
-        monthly_data[month_key][category] += amount
-        monthly_data[month_key]["_total"] += amount
-        if amount > 0:
-            monthly_data[month_key]["_income"] += amount
-        else:
-            monthly_data[month_key]["_expense"] += abs(amount)
-    
-    # Format for response
-    months_list = sorted(monthly_data.keys())
-    
-    return {
-        "months": [
-            {
-                "month": m,
-                "total": round(monthly_data[m]["_total"], 2),
-                "income": round(monthly_data[m].get("_income", 0), 2),
-                "expense": round(monthly_data[m].get("_expense", 0), 2),
-                "top_categories": sorted(
-                    [
-                        {"name": k, "amount": round(v, 2)}
-                        for k, v in monthly_data[m].items()
-                        if not k.startswith("_")
-                    ],
-                    key=lambda x: abs(x["amount"]),
-                    reverse=True
-                )[:10]
-            }
-            for m in months_list
-        ],
-        "data_available_from": months_list[0] if months_list else None,
-        "data_available_to": months_list[-1] if months_list else None
+// =============================================================================
+// TRANSACTIONS PANEL
+// =============================================================================
+function TransactionsPanel({ apiUrl, categories }) {
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [days, setDays] = useState(14);
+  const [filter, setFilter] = useState('all');
+  
+  const fetchTransactions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/transactions?days=${days}`);
+      const data = await res.json();
+      setTransactions(data.data?.transactions || []);
+    } catch (err) { console.error(err); }
+    setLoading(false);
+  }, [apiUrl, days]);
+  
+  useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
+  
+  const updateTransaction = async (id) => {
+    if (!selectedCategory) return;
+    setSaving(true);
+    try {
+      await fetch(`${apiUrl}/api/transactions/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category_name: selectedCategory })
+      });
+      setEditingId(null);
+      setSelectedCategory('');
+      fetchTransactions();
+    } catch (err) { console.error(err); }
+    setSaving(false);
+  };
+  
+  const categoryList = categories?.data?.category_groups?.flatMap(g => g.categories.filter(c => !c.hidden).map(c => c.name)) || [];
+  const filtered = filter === 'uncategorized' ? transactions.filter(t => !t.category_name || t.category_name === 'Uncategorized') : transactions;
+  
+  return (
+    <Card title="📋 Recent Transactions" action={
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <select value={filter} onChange={e => setFilter(e.target.value)} style={{ padding: '6px 10px', border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 12 }}>
+          <option value="all">All</option>
+          <option value="uncategorized">Uncategorized</option>
+        </select>
+        <select value={days} onChange={e => setDays(Number(e.target.value))} style={{ padding: '6px 10px', border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 12 }}>
+          <option value={7}>7 days</option>
+          <option value={14}>14 days</option>
+          <option value={30}>30 days</option>
+        </select>
+        <button onClick={fetchTransactions} disabled={loading} style={{ padding: '6px 12px', background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
+          {loading ? '...' : '↻'}
+        </button>
+      </div>
+    }>
+      <div style={{ maxHeight: 450, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead><tr style={{ background: COLORS.bg, position: 'sticky', top: 0 }}>
+            <th style={{ padding: 10, textAlign: 'left' }}>Date</th>
+            <th style={{ padding: 10, textAlign: 'left' }}>Payee</th>
+            <th style={{ padding: 10, textAlign: 'left' }}>Category</th>
+            <th style={{ padding: 10, textAlign: 'right' }}>Amount</th>
+            <th style={{ padding: 10, width: 90 }}></th>
+          </tr></thead>
+          <tbody>
+            {filtered.map(t => (
+              <tr key={t.id} style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                <td style={{ padding: 10 }}>{formatDate(t.date)}</td>
+                <td style={{ padding: 10, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.payee_name || 'Unknown'}</td>
+                <td style={{ padding: 10 }}>
+                  {editingId === t.id ? (
+                    <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} autoFocus style={{ padding: 4, fontSize: 11, width: '100%' }}>
+                      <option value="">Select...</option>
+                      {categoryList.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  ) : (
+                    <span style={{ color: t.category_name && t.category_name !== 'Uncategorized' ? COLORS.text : COLORS.warning }}>
+                      {t.category_name || '⚠ Uncategorized'}
+                    </span>
+                  )}
+                </td>
+                <td style={{ padding: 10, textAlign: 'right', color: t.amount < 0 ? COLORS.negative : COLORS.positive, fontWeight: 500 }}>
+                  {formatCurrency(Math.abs(t.amount / 1000))}
+                </td>
+                <td style={{ padding: 10, textAlign: 'center' }}>
+                  {editingId === t.id ? (
+                    <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                      <button onClick={() => updateTransaction(t.id)} disabled={saving || !selectedCategory} style={{ padding: '4px 8px', background: COLORS.positive, color: '#FFF', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>{saving ? '...' : 'Save'}</button>
+                      <button onClick={() => { setEditingId(null); setSelectedCategory(''); }} style={{ padding: '4px 6px', background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✕</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setEditingId(t.id); setSelectedCategory(t.category_name || ''); }} style={{ padding: '4px 10px', background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>Edit</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && (
+          <p style={{ textAlign: 'center', color: COLORS.textMuted, padding: 32 }}>
+            {filter === 'uncategorized' ? '🎉 All transactions categorized!' : 'No transactions found'}
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// =============================================================================
+// SPENDING CHART
+// =============================================================================
+function SpendingChart({ data }) {
+  if (!data?.categories) return null;
+  const expenses = data.categories.filter(c => c.amount < 0).map(c => ({ name: c.name, value: Math.abs(c.amount) })).slice(0, 8);
+  
+  return (
+    <Card title="💰 Spending by Category">
+      <div style={{ display: 'flex', gap: 16 }}>
+        <div style={{ width: 160, height: 160 }}>
+          <ResponsiveContainer>
+            <PieChart>
+              <Pie data={expenses} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={65}>
+                {expenses.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+              </Pie>
+              <Tooltip formatter={v => formatCurrency(v)} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <div style={{ flex: 1 }}>
+          {expenses.map((c, i) => (
+            <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: `1px solid ${COLORS.border}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: CHART_COLORS[i % CHART_COLORS.length] }} />
+                <span style={{ fontSize: 12, color: COLORS.text }}>{c.name}</span>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: COLORS.text }}>{formatCurrency(c.value)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// =============================================================================
+// HELOC PANEL
+// =============================================================================
+function HelocPanel({ apiUrl, authHeader }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [extraPayment, setExtraPayment] = useState(1500);
+  const [principal, setPrincipal] = useState(275809);
+  const [rate, setRate] = useState(6.32);
+  
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/analytics/heloc-analysis?principal=${principal}&rate=${rate/100}&current_payment=1546`,
+        { headers: { 'Authorization': authHeader } }
+      );
+      if (res.ok) setData(await res.json());
+    } catch (err) {
+      console.error('HELOC fetch error:', err);
     }
+    setLoading(false);
+  }, [apiUrl, authHeader, principal, rate]);
 
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-@app.get("/api/analytics/heloc-analysis")
-async def heloc_analysis(
-    principal: float = 275809,
-    rate: float = 0.0632,
-    current_payment: float = 1546,
-    draw_period_end: str = "2032-01-01"
-):
-    """HELOC payoff analysis with different extra payment scenarios"""
-    
-    monthly_rate = rate / 12
-    draw_end = datetime.strptime(draw_period_end, "%Y-%m-%d").date()
-    months_in_draw = max(0, (draw_end.year - date.today().year) * 12 + (draw_end.month - date.today().month))
-    
-    scenarios = []
-    extra_payments = [0, 500, 1000, 1500, 2000, 2500, 3000]
-    
-    for extra in extra_payments:
-        total_payment = current_payment + extra
-        balance = principal
-        months = 0
-        total_interest = 0
+  if (!data) return <Card title="🏠 HELOC Payoff Scenarios"><p style={{ color: COLORS.textMuted }}>Loading...</p></Card>;
+
+  // Find the scenario that matches current slider
+  const selectedScenario = data.scenarios.find(s => s.extra_payment === extraPayment) || data.scenarios[0];
+  
+  return (
+    <Card title="🏠 HELOC Payoff Scenarios">
+      {/* Interactive Controls */}
+      <div style={{ marginBottom: 20, padding: 16, background: COLORS.bg, borderRadius: 8 }}>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <label style={{ fontSize: 13, fontWeight: 600 }}>Extra Monthly Payment</label>
+            <span style={{ fontSize: 14, fontWeight: 700, color: COLORS.primary }}>{formatCurrency(extraPayment)}/mo</span>
+          </div>
+          <input type="range" min="0" max="3000" step="100" value={extraPayment}
+            onChange={e => setExtraPayment(Number(e.target.value))}
+            style={{ width: '100%', cursor: 'pointer' }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: COLORS.textMuted }}>
+            <span>$0</span><span>$1,500</span><span>$3,000</span>
+          </div>
+        </div>
         
-        # Simulate payoff
-        while balance > 0 and months < 360:  # Max 30 years
-            interest = balance * monthly_rate
-            principal_payment = total_payment - interest
-            
-            if principal_payment <= 0:
-                # Payment doesn't cover interest
-                break
-            
-            if principal_payment > balance:
-                principal_payment = balance
-            
-            balance -= principal_payment
-            total_interest += interest
-            months += 1
-        
-        payoff_date = date.today() + timedelta(days=months * 30)
-        
-        scenarios.append({
-            "extra_payment": extra,
-            "total_monthly": total_payment,
-            "payoff_months": months,
-            "payoff_date": payoff_date.isoformat(),
-            "total_interest": round(total_interest, 2),
-            "total_paid": round(principal + total_interest, 2),
-            "interest_saved_vs_minimum": round(
-                scenarios[0]["total_interest"] - total_interest, 2
-            ) if scenarios else 0,
-            "paid_before_draw_end": payoff_date < draw_end
-        })
-    
-    return {
-        "current_balance": principal,
-        "interest_rate": rate,
-        "current_payment": current_payment,
-        "draw_period_ends": draw_period_end,
-        "months_remaining_in_draw": months_in_draw,
-        "scenarios": scenarios
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, color: COLORS.textMuted }}>Principal Balance</label>
+            <input type="number" value={principal} onChange={e => setPrincipal(Number(e.target.value))}
+              style={{ width: '100%', padding: 8, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 13 }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: COLORS.textMuted }}>Interest Rate (%)</label>
+            <input type="number" step="0.01" value={rate} onChange={e => setRate(Number(e.target.value))}
+              style={{ width: '100%', padding: 8, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 13 }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Results Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+        <div style={{ padding: 12, background: COLORS.primaryLight, borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#FFF' }}>{formatCurrency(selectedScenario.total_monthly)}</p>
+          <p style={{ margin: '4px 0 0', fontSize: 10, color: COLORS.accentLight }}>Total/Month</p>
+        </div>
+        <div style={{ padding: 12, background: selectedScenario.paid_before_draw_end ? COLORS.positive + '20' : COLORS.warning + '20', borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: selectedScenario.paid_before_draw_end ? COLORS.positive : COLORS.warning }}>
+            {new Date(selectedScenario.payoff_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+          </p>
+          <p style={{ margin: '4px 0 0', fontSize: 10, color: COLORS.textMuted }}>Payoff Date {selectedScenario.paid_before_draw_end && '✓'}</p>
+        </div>
+        <div style={{ padding: 12, background: COLORS.bg, borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: COLORS.negative }}>{formatCurrency(selectedScenario.total_interest)}</p>
+          <p style={{ margin: '4px 0 0', fontSize: 10, color: COLORS.textMuted }}>Total Interest</p>
+        </div>
+        <div style={{ padding: 12, background: COLORS.positive + '20', borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: COLORS.positive }}>{formatCurrency(selectedScenario.interest_saved_vs_minimum)}</p>
+          <p style={{ margin: '4px 0 0', fontSize: 10, color: COLORS.textMuted }}>Interest Saved</p>
+        </div>
+      </div>
+
+      {/* Comparison Table */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead><tr style={{ background: COLORS.bg }}>
+            <th style={{ padding: 10, textAlign: 'left' }}>Extra/mo</th>
+            <th style={{ padding: 10, textAlign: 'right' }}>Total</th>
+            <th style={{ padding: 10, textAlign: 'right' }}>Payoff</th>
+            <th style={{ padding: 10, textAlign: 'right' }}>Interest</th>
+            <th style={{ padding: 10, textAlign: 'right' }}>Saved</th>
+          </tr></thead>
+          <tbody>
+            {data.scenarios.map((s, i) => (
+              <tr key={i} style={{ 
+                borderTop: `1px solid ${COLORS.border}`, 
+                background: s.extra_payment === extraPayment ? COLORS.primary + '15' : 'transparent',
+                fontWeight: s.extra_payment === extraPayment ? 600 : 400
+              }}>
+                <td style={{ padding: 10 }}>{s.extra_payment === 0 ? 'Min' : `+${formatCurrency(s.extra_payment)}`}</td>
+                <td style={{ padding: 10, textAlign: 'right' }}>{formatCurrency(s.total_monthly)}</td>
+                <td style={{ padding: 10, textAlign: 'right' }}>
+                  {new Date(s.payoff_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                  {s.paid_before_draw_end && <span style={{ marginLeft: 4, color: COLORS.positive }}>✓</span>}
+                </td>
+                <td style={{ padding: 10, textAlign: 'right' }}>{formatCurrency(s.total_interest)}</td>
+                <td style={{ padding: 10, textAlign: 'right', color: COLORS.positive }}>{s.interest_saved_vs_minimum > 0 ? formatCurrency(s.interest_saved_vs_minimum) : '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 8 }}>
+        ✓ = Paid off before draw period ends (Jan 2032). Current HELOC rate: {rate}%
+      </p>
+    </Card>
+  );
+}
+
+// =============================================================================
+// RETIREMENT PANEL
+// =============================================================================
+function RetirementPanel({ apiUrl, authHeader }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [currentBalance, setCurrentBalance] = useState(500000);
+  const [annualContribution, setAnnualContribution] = useState(41225);
+  const [targetAge, setTargetAge] = useState(60);
+  const [returnRate, setReturnRate] = useState(7);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/analytics/retirement-projection?current_balance=${currentBalance}&annual_contribution=${annualContribution}&current_age=40&target_age=${targetAge}&return_rate=${returnRate/100}`,
+        { headers: { 'Authorization': authHeader } }
+      );
+      if (res.ok) setData(await res.json());
+    } catch (err) {
+      console.error('Retirement fetch error:', err);
     }
+    setLoading(false);
+  }, [apiUrl, authHeader, currentBalance, annualContribution, targetAge, returnRate]);
 
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-@app.get("/api/analytics/retirement-projection")
-async def retirement_projection(
-    current_balance: float = 500000,
-    annual_contribution: float = 41225,
-    target_age: int = 60,
-    current_age: int = 40,
-    return_rate: float = 0.07,
-    inflation_rate: float = 0.03
-):
-    """Retirement projection calculator"""
+  if (!data) return <Card title="📊 Retirement Projection"><p style={{ color: COLORS.textMuted }}>Loading...</p></Card>;
+  
+  const chartData = data.projections.filter((_, i) => i % 2 === 0 || i === data.projections.length - 1);
+  
+  return (
+    <Card title="📊 Retirement Projection">
+      {/* Interactive Controls */}
+      <div style={{ marginBottom: 20, padding: 16, background: COLORS.bg, borderRadius: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <label style={{ fontSize: 12, color: COLORS.textMuted }}>Annual Contribution</label>
+              <span style={{ fontSize: 13, fontWeight: 600, color: COLORS.primary }}>{formatCurrency(annualContribution)}</span>
+            </div>
+            <input type="range" min="20000" max="80000" step="1000" value={annualContribution}
+              onChange={e => setAnnualContribution(Number(e.target.value))}
+              style={{ width: '100%', cursor: 'pointer' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: COLORS.textMuted }}>
+              <span>$20K</span><span>$50K</span><span>$80K</span>
+            </div>
+          </div>
+          
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <label style={{ fontSize: 12, color: COLORS.textMuted }}>Target Retirement Age</label>
+              <span style={{ fontSize: 13, fontWeight: 600, color: COLORS.primary }}>{targetAge}</span>
+            </div>
+            <input type="range" min="55" max="70" step="1" value={targetAge}
+              onChange={e => setTargetAge(Number(e.target.value))}
+              style={{ width: '100%', cursor: 'pointer' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: COLORS.textMuted }}>
+              <span>55</span><span>62</span><span>70</span>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, color: COLORS.textMuted }}>Current Balance</label>
+            <input type="number" value={currentBalance} onChange={e => setCurrentBalance(Number(e.target.value))}
+              style={{ width: '100%', padding: 8, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 13 }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: COLORS.textMuted }}>Expected Return (%)</label>
+            <input type="number" step="0.5" value={returnRate} onChange={e => setReturnRate(Number(e.target.value))}
+              style={{ width: '100%', padding: 8, border: `1px solid ${COLORS.border}`, borderRadius: 6, fontSize: 13 }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Results Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+        <div style={{ padding: 12, background: COLORS.primaryLight, borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#FFF' }}>{formatCurrency(data.projected_balance_at_retirement)}</p>
+          <p style={{ margin: '4px 0 0', fontSize: 10, color: COLORS.accentLight }}>At Age {targetAge}</p>
+        </div>
+        <div style={{ padding: 12, background: COLORS.positive + '20', borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: COLORS.positive }}>{formatCurrency(data.safe_monthly_withdrawal)}</p>
+          <p style={{ margin: '4px 0 0', fontSize: 10, color: COLORS.textMuted }}>Monthly (4%)</p>
+        </div>
+        <div style={{ padding: 12, background: COLORS.plan + '20', borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: COLORS.plan }}>{formatCurrency(data.inflation_adjusted_balance)}</p>
+          <p style={{ margin: '4px 0 0', fontSize: 10, color: COLORS.textMuted }}>Today's $</p>
+        </div>
+        <div style={{ padding: 12, background: COLORS.bg, borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: COLORS.text }}>{formatCurrency(data.safe_withdrawal_real / 12)}</p>
+          <p style={{ margin: '4px 0 0', fontSize: 10, color: COLORS.textMuted }}>Real Monthly</p>
+        </div>
+      </div>
+
+      {/* Projection Chart */}
+      <ResponsiveContainer width="100%" height={180}>
+        <LineChart data={chartData}>
+          <XAxis dataKey="age" tick={{ fontSize: 10 }} />
+          <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v/1000000).toFixed(1)}M`} />
+          <Tooltip formatter={v => formatCurrency(v)} />
+          <Legend />
+          <Line type="monotone" dataKey="nominal_balance" stroke={COLORS.primary} strokeWidth={2} dot={false} name="Nominal" />
+          <Line type="monotone" dataKey="real_balance" stroke={COLORS.plan} strokeWidth={2} dot={false} strokeDasharray="5 5" name="Real (inflation-adj)" />
+        </LineChart>
+      </ResponsiveContainer>
+      
+      <p style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 8 }}>
+        Assumptions: {returnRate}% annual return, 3% inflation, {targetAge - 40} years to retirement
+      </p>
+    </Card>
+  );
+}
+
+// =============================================================================
+// ACCOUNTS PANEL
+// =============================================================================
+function AccountsPanel({ accounts }) {
+  if (!accounts?.data?.accounts) return null;
+  const accts = accounts.data.accounts.filter(a => !a.closed && !a.deleted);
+  const netWorth = accts.reduce((sum, a) => sum + (a.balance || 0), 0) / 1000;
+  
+  return (
+    <Card title="🏦 Accounts">
+      <div style={{ marginBottom: 12, padding: 12, background: COLORS.primaryLight, borderRadius: 8 }}>
+        <p style={{ margin: 0, fontSize: 11, color: COLORS.accentLight }}>Net Worth</p>
+        <p style={{ margin: '4px 0 0', fontSize: 24, fontWeight: 700, color: '#FFF' }}>{formatCurrency(netWorth)}</p>
+      </div>
+      {accts.slice(0, 8).map(a => (
+        <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${COLORS.border}` }}>
+          <span style={{ fontSize: 12, color: COLORS.text }}>{a.name}</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: (a.balance || 0) >= 0 ? COLORS.positive : COLORS.negative }}>{formatCurrency((a.balance || 0) / 1000)}</span>
+        </div>
+      ))}
+    </Card>
+  );
+}
+
+// =============================================================================
+// MAIN DASHBOARD
+// =============================================================================
+export default function GoodlevDashboard() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('dashboard_authenticated') === 'true');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [loading, setLoading] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(null);
+  const [showAI, setShowAI] = useState(false);
+  
+  const [periodType, setPeriodType] = useState('month');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  
+  const [accounts, setAccounts] = useState(null);
+  const [categories, setCategories] = useState(null);
+  const [monthlySummary, setMonthlySummary] = useState(null);
+  
+  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const authHeader = sessionStorage.getItem('auth') ? 'Basic ' + sessionStorage.getItem('auth') : '';
+  
+  const fetchAllData = useCallback(async () => {
+    if (!isAuthenticated || !apiUrl) return;
+    setLoading(true);
+    const year = selectedDate.getFullYear();
+    const month = selectedDate.getMonth() + 1;
     
-    years_to_retirement = target_age - current_age
-    
-    # Project balance year by year
-    projections = []
-    balance = current_balance
-    
-    for year in range(years_to_retirement + 1):
-        age = current_age + year
+    try {
+      const [accountsRes, categoriesRes, summaryRes] = await Promise.all([
+        fetch(`${apiUrl}/api/accounts`),
+        fetch(`${apiUrl}/api/categories`),
+        fetch(`${apiUrl}/api/analytics/monthly-summary?year=${year}&month=${month}`),
+      ]);
+      
+      if (accountsRes.ok) setAccounts(await accountsRes.json());
+      if (categoriesRes.ok) setCategories(await categoriesRes.json());
+      if (summaryRes.ok) setMonthlySummary(await summaryRes.json());
+      setLastRefresh(new Date());
+    } catch (err) { console.error(err); }
+    setLoading(false);
+  }, [isAuthenticated, apiUrl, selectedDate]);
+  
+  useEffect(() => { fetchAllData(); }, [fetchAllData]);
+  
+  const financialContext = useMemo(() => {
+    if (!monthlySummary || !accounts) return FAMILY_CONTEXT;
+    const netWorth = accounts.data?.accounts?.reduce((sum, a) => sum + (a.balance || 0), 0) / 1000 || 0;
+    return `${FAMILY_CONTEXT}\nCURRENT: Income ${formatCurrency(monthlySummary.total_income)}, Expenses ${formatCurrency(monthlySummary.total_expense)}, Net ${formatCurrency(monthlySummary.net)}, Net Worth ${formatCurrency(netWorth)}`;
+  }, [monthlySummary, accounts]);
+  
+  const handleLogout = () => {
+    sessionStorage.clear();
+    setIsAuthenticated(false);
+  };
+  
+  if (!isAuthenticated) return <LoginScreen onLogin={() => setIsAuthenticated(true)} />;
+  
+  const tabs = [
+    { id: 'dashboard', label: '📊 Dashboard' },
+    { id: 'categorize', label: '🤖 Auto-Cat' },
+    { id: 'transactions', label: '📋 Transactions' },
+    { id: 'projections', label: '📈 Projections' },
+  ];
+  
+  return (
+    <div style={{ minHeight: '100vh', background: COLORS.bg, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      {/* Header */}
+      <div style={{ background: COLORS.primary, padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#FFF' }}>🏦 Goodlev Dashboard</h1>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {tabs.map(t => (
+              <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+                padding: '8px 14px', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer',
+                background: activeTab === t.id ? COLORS.accent : 'transparent',
+                color: activeTab === t.id ? COLORS.primary : '#FFF',
+                fontWeight: activeTab === t.id ? 600 : 400,
+              }}>{t.label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {lastRefresh && <span style={{ fontSize: 11, color: COLORS.accentLight }}>Updated {lastRefresh.toLocaleTimeString()}</span>}
+          <button onClick={fetchAllData} disabled={loading} style={{ padding: '6px 14px', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 6, color: '#FFF', fontSize: 12, cursor: 'pointer' }}>
+            {loading ? '...' : '↻ Refresh'}
+          </button>
+          <button onClick={handleLogout} style={{ padding: '6px 14px', background: COLORS.negative, border: 'none', borderRadius: 6, color: '#FFF', fontSize: 12, cursor: 'pointer' }}>Logout</button>
+        </div>
+      </div>
+      
+      {/* Content */}
+      <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
+        {activeTab === 'dashboard' && (
+          <>
+            <PeriodSelector periodType={periodType} setPeriodType={setPeriodType} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+              <MetricCard label="Income" value={formatCurrency(monthlySummary?.total_income || 0)} color={COLORS.positive} />
+              <MetricCard label="Expenses" value={formatCurrency(monthlySummary?.total_expense || 0)} color={COLORS.negative} />
+              <MetricCard label="Net" value={formatCurrency(monthlySummary?.net || 0)} color={(monthlySummary?.net || 0) >= 0 ? COLORS.positive : COLORS.negative} />
+              <MetricCard label="Target Surplus" value={formatCurrency(3922)} subValue="Based on $18,703 expenses" color={COLORS.plan} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+              <SpendingChart data={monthlySummary} />
+              <AccountsPanel accounts={accounts} />
+            </div>
+          </>
+        )}
         
-        # Add contribution (except year 0)
-        if year > 0:
-            balance = balance * (1 + return_rate) + annual_contribution
-        
-        # Calculate inflation-adjusted value
-        real_value = balance / ((1 + inflation_rate) ** year)
-        
-        projections.append({
-            "year": year,
-            "age": age,
-            "nominal_balance": round(balance, 2),
-            "real_balance": round(real_value, 2)
-        })
-    
-    final_balance = projections[-1]["nominal_balance"]
-    final_real = projections[-1]["real_balance"]
-    
-    # 4% rule withdrawal
-    safe_withdrawal = final_balance * 0.04
-    safe_withdrawal_real = final_real * 0.04
-    
-    return {
-        "current_balance": current_balance,
-        "annual_contribution": annual_contribution,
-        "years_to_retirement": years_to_retirement,
-        "assumed_return": return_rate,
-        "assumed_inflation": inflation_rate,
-        "projected_balance_at_retirement": round(final_balance, 2),
-        "inflation_adjusted_balance": round(final_real, 2),
-        "safe_annual_withdrawal_4pct": round(safe_withdrawal, 2),
-        "safe_withdrawal_real": round(safe_withdrawal_real, 2),
-        "safe_monthly_withdrawal": round(safe_withdrawal / 12, 2),
-        "projections": projections
-    }
-
-
-@app.get("/api/analytics/budget-vs-actual")
-async def budget_vs_actual(
-    budget_id: str = "last-used",
-    year: int = None,
-    month: int = None,
-    db: Session = Depends(get_db)
-):
-    """Compare actual spending to budget targets"""
-    client = get_ynab_client()
-    
-    # Get monthly summary
-    today = date.today()
-    year = year or today.year
-    month = month or today.month
-    
-    summary = await get_monthly_summary(budget_id, year, month)
-    
-    # Get budget targets
-    targets = db.query(BudgetTarget).all()
-    target_map = {t.category_name.lower(): t.monthly_target for t in targets}
-    
-    # Get YNAB category budgets
-    cat_result = await client.get_categories(budget_id)
-    category_groups = cat_result.get("data", {}).get("category_groups", [])
-    
-    ynab_budgets = {}
-    for group in category_groups:
-        for cat in group.get("categories", []):
-            if cat.get("budgeted"):
-                ynab_budgets[cat["name"].lower()] = cat["budgeted"] / 1000
-    
-    # Build comparison
-    comparisons = []
-    for cat_data in summary["categories"]:
-        name = cat_data["name"]
-        actual = abs(cat_data["amount"])  # Use absolute for comparison
-        
-        # Get budget (prefer local target, fall back to YNAB)
-        budget = target_map.get(name.lower()) or ynab_budgets.get(name.lower()) or 0
-        
-        variance = budget - actual if budget else None
-        variance_pct = (variance / budget * 100) if budget and budget != 0 else None
-        
-        comparisons.append({
-            "category": name,
-            "budgeted": round(budget, 2) if budget else None,
-            "actual": round(actual, 2),
-            "variance": round(variance, 2) if variance is not None else None,
-            "variance_pct": round(variance_pct, 1) if variance_pct is not None else None,
-            "status": "over" if variance and variance < 0 else "under" if variance and variance > 0 else "on_track"
-        })
-    
-    return {
-        "year": year,
-        "month": month,
-        "total_budgeted": sum(c["budgeted"] or 0 for c in comparisons),
-        "total_actual": summary["total_expense"],
-        "comparisons": sorted(comparisons, key=lambda x: abs(x["actual"]), reverse=True)
-    }
-
-
-# =============================================================================
-# BUDGET TARGETS ENDPOINTS
-# =============================================================================
-
-@app.get("/api/budget-targets")
-async def get_budget_targets(db: Session = Depends(get_db)):
-    """Get all budget targets"""
-    targets = db.query(BudgetTarget).all()
-    return {
-        "targets": [
-            {
-                "id": t.id,
-                "category_name": t.category_name,
-                "monthly_target": t.monthly_target,
-                "is_income": t.is_income
-            }
-            for t in targets
-        ]
-    }
-
-
-@app.post("/api/budget-targets")
-async def set_budget_target(target: BudgetTargetCreate, db: Session = Depends(get_db)):
-    """Set a budget target"""
-    existing = db.query(BudgetTarget).filter(
-        BudgetTarget.category_name == target.category_name
-    ).first()
-    
-    if existing:
-        existing.monthly_target = target.monthly_target
-        existing.is_income = target.is_income
-    else:
-        new_target = BudgetTarget(
-            category_name=target.category_name,
-            monthly_target=target.monthly_target,
-            is_income=target.is_income
-        )
-        db.add(new_target)
-    
-    db.commit()
-    return {"message": "Budget target set", "category": target.category_name}
-
-
-@app.delete("/api/budget-targets/{category_name}")
-async def delete_budget_target(category_name: str, db: Session = Depends(get_db)):
-    """Delete a budget target"""
-    target = db.query(BudgetTarget).filter(
-        BudgetTarget.category_name == category_name
-    ).first()
-    
-    if not target:
-        raise HTTPException(status_code=404, detail="Target not found")
-    
-    db.delete(target)
-    db.commit()
-    return {"message": "Target deleted", "category": category_name}
-
-
-# =============================================================================
-# BATCH IMPORT RULES
-# =============================================================================
-
-@app.post("/api/autocategorize/rules/import")
-async def import_rules(
-    rules: List[CategoryRuleCreate],
-    replace: bool = False,
-    db: Session = Depends(get_db)
-):
-    """Bulk import category rules"""
-    if replace:
-        db.query(CategoryRule).delete()
-    
-    imported = 0
-    for rule in rules:
-        priority = rule.priority if rule.priority else len(rule.payee_pattern)
-        new_rule = CategoryRule(
-            payee_pattern=rule.payee_pattern.lower(),
-            category_name=rule.category_name,
-            priority=priority
-        )
-        db.add(new_rule)
-        imported += 1
-    
-    db.commit()
-    return {"message": f"Imported {imported} rules", "replaced_existing": replace}
-
-
-# =============================================================================
-# MAIN
-# =============================================================================
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+        {activeTab === 'categorize' && <AutoCategorizePanel apiUrl={apiUrl} onRefresh={fetchAllData} />}
+        {activeTab === 'transactions' && <TransactionsPanel apiUrl={apiUrl} categories={categories} />}
+        {activeTab === 'projections' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <HelocPanel apiUrl={apiUrl} authHeader={authHeader} />
+            <RetirementPanel apiUrl={apiUrl} authHeader={authHeader} />
+          </div>
+        )}
+      </div>
+      
+      {/* AI FAB */}
+      <button onClick={() => setShowAI(!showAI)} style={{
+        position: 'fixed', bottom: 24, right: 24, width: 56, height: 56, borderRadius: '50%',
+        background: COLORS.accent, color: COLORS.primary, border: 'none', fontSize: 22, cursor: 'pointer',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999,
+      }}>{showAI ? '×' : '🤖'}</button>
+      
+      <AIAdvisor isOpen={showAI} onClose={() => setShowAI(false)} financialContext={financialContext} />
+    </div>
+  );
+}
