@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, AreaChart, Area, ReferenceLine } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, AreaChart, Area, ReferenceLine, Legend } from 'recharts';
 
 const COLORS = {
   primary: '#0F2942',
@@ -48,10 +48,10 @@ const BASELINE = {
 };
 
 const PHILOSOPHIES = {
-  balanced: { name: 'Balanced', helocAllocation: 0.5, retirementAllocation: 0.3, emergencyAllocation: 0.1, educationAllocation: 0.1 },
-  debtFirst: { name: 'Debt First', helocAllocation: 0.8, retirementAllocation: 0.1, emergencyAllocation: 0.05, educationAllocation: 0.05 },
-  growth: { name: 'Growth Focus', helocAllocation: 0.2, retirementAllocation: 0.6, emergencyAllocation: 0.1, educationAllocation: 0.1 },
-  fire: { name: 'FIRE', helocAllocation: 0.15, retirementAllocation: 0.7, emergencyAllocation: 0.1, educationAllocation: 0.05 },
+  balanced: { name: 'Balanced', desc: 'Equal priority to debt and wealth building', helocAllocation: 0.5, retirementAllocation: 0.3, emergencyAllocation: 0.1, educationAllocation: 0.1 },
+  debtFirst: { name: 'Debt First', desc: 'Maximize debt payoff first', helocAllocation: 0.8, retirementAllocation: 0.1, emergencyAllocation: 0.05, educationAllocation: 0.05 },
+  growth: { name: 'Growth Focus', desc: 'Prioritize retirement growth', helocAllocation: 0.2, retirementAllocation: 0.6, emergencyAllocation: 0.1, educationAllocation: 0.1 },
+  fire: { name: 'FIRE', desc: 'Aggressive savings for early retirement', helocAllocation: 0.15, retirementAllocation: 0.7, emergencyAllocation: 0.1, educationAllocation: 0.05 },
 };
 
 const calculateDebtPayoff = (principal, annualRate, monthlyPayment, extraPayment = 0) => {
@@ -60,18 +60,22 @@ const calculateDebtPayoff = (principal, annualRate, monthlyPayment, extraPayment
   const totalPayment = monthlyPayment + extraPayment;
   let months = 0;
   let totalInterest = 0;
+  const schedule = [];
   
   while (balance > 0 && months < 360) {
     const interest = balance * monthlyRate;
     totalInterest += interest;
     balance = Math.max(0, balance - (totalPayment - interest));
     months++;
-    if (totalPayment <= interest) return { months: -1, payoffDate: 'Never', totalInterest: Infinity };
+    if (months % 12 === 0 || balance === 0) {
+      schedule.push({ month: months, year: Math.floor(months / 12), balance: Math.round(balance) });
+    }
+    if (totalPayment <= interest) return { months: -1, payoffDate: 'Never', totalInterest: Infinity, schedule: [] };
   }
   
   const payoffDate = new Date();
   payoffDate.setMonth(payoffDate.getMonth() + months);
-  return { months, payoffDate: payoffDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), totalInterest: Math.round(totalInterest) };
+  return { months, payoffDate: payoffDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), totalInterest: Math.round(totalInterest), schedule };
 };
 
 const calculateRetirementGrowth = (currentBalance, monthlyContrib, years) => {
@@ -88,10 +92,19 @@ const calculateRetirementGrowth = (currentBalance, monthlyContrib, years) => {
   return { finalBalance: Math.round(balance), snapshots };
 };
 
+const calculate529Growth = (currentBalance, monthlyContrib, years) => {
+  const monthlyReturn = 0.06 / 12;
+  let balance = currentBalance;
+  for (let month = 1; month <= years * 12; month++) {
+    balance = balance * (1 + monthlyReturn) + monthlyContrib;
+  }
+  return { finalBalance: Math.round(balance) };
+};
+
 const formatCurrency = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value || 0);
 
 // =============================================================================
-// LOGIN SCREEN COMPONENT
+// LOGIN SCREEN
 // =============================================================================
 function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState('');
@@ -111,70 +124,18 @@ function LoginScreen({ onLogin }) {
   };
   
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: `linear-gradient(135deg, ${COLORS.primary} 0%, #0A1F33 100%)`,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: 'system-ui, sans-serif',
-    }}>
-      <div style={{
-        background: COLORS.bgCard,
-        borderRadius: 16,
-        padding: 40,
-        width: '100%',
-        maxWidth: 400,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-      }}>
+    <div style={{ minHeight: '100vh', background: `linear-gradient(135deg, ${COLORS.primary} 0%, #0A1F33 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ background: COLORS.bgCard, borderRadius: 16, padding: 40, width: '100%', maxWidth: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🏦</div>
-          <h1 style={{ margin: 0, fontSize: 24, color: COLORS.primary, fontWeight: 700 }}>
-            Goodlev Family Dashboard
-          </h1>
-          <p style={{ margin: '8px 0 0 0', color: COLORS.textMuted, fontSize: 14 }}>
-            Enter password to continue
-          </p>
+          <h1 style={{ margin: 0, fontSize: 24, color: COLORS.primary, fontWeight: 700 }}>Family Dashboard</h1>
+          <p style={{ margin: '8px 0 0 0', color: COLORS.textMuted, fontSize: 14 }}>Enter password to continue</p>
         </div>
-        
         <form onSubmit={handleSubmit}>
-          <input
-            type="password"
-            value={password}
-            onChange={e => { setPassword(e.target.value); setError(''); }}
-            placeholder="Password"
-            autoFocus
-            style={{
-              width: '100%',
-              padding: '14px 16px',
-              fontSize: 16,
-              border: `2px solid ${error ? COLORS.negative : COLORS.border}`,
-              borderRadius: 8,
-              marginBottom: 16,
-              outline: 'none',
-              boxSizing: 'border-box',
-            }}
-          />
-          
-          {error && (
-            <div style={{ color: COLORS.negative, fontSize: 14, marginBottom: 16, textAlign: 'center' }}>
-              {error}
-            </div>
-          )}
-          
-          <button type="submit" style={{
-            width: '100%',
-            padding: '14px 16px',
-            fontSize: 16,
-            fontWeight: 600,
-            color: '#FFF',
-            background: COLORS.accent,
-            border: 'none',
-            borderRadius: 8,
-            cursor: 'pointer',
-          }}>
-            Sign In
-          </button>
+          <input type="password" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} placeholder="Password" autoFocus
+            style={{ width: '100%', padding: '14px 16px', fontSize: 16, border: `2px solid ${error ? COLORS.negative : COLORS.border}`, borderRadius: 8, marginBottom: 16, outline: 'none', boxSizing: 'border-box' }} />
+          {error && <div style={{ color: COLORS.negative, fontSize: 14, marginBottom: 16, textAlign: 'center' }}>{error}</div>}
+          <button type="submit" style={{ width: '100%', padding: '14px 16px', fontSize: 16, fontWeight: 600, color: '#FFF', background: COLORS.accent, border: 'none', borderRadius: 8, cursor: 'pointer' }}>Sign In</button>
         </form>
       </div>
     </div>
@@ -182,19 +143,24 @@ function LoginScreen({ onLogin }) {
 }
 
 // =============================================================================
-// MAIN DASHBOARD COMPONENT
+// MAIN DASHBOARD
 // =============================================================================
 export default function GoodlevDashboard() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return sessionStorage.getItem('dashboard_authenticated') === 'true';
-  });
-  
+  const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('dashboard_authenticated') === 'true');
   const [activeTab, setActiveTab] = useState('overview');
   const [philosophy, setPhilosophy] = useState('balanced');
   const [helocExtra, setHelocExtra] = useState(1961);
   const [retirementExtra, setRetirementExtra] = useState(1176);
   const [emergencyExtra, setEmergencyExtra] = useState(392);
   const [educationExtra, setEducationExtra] = useState(392);
+  const [scenarios, setScenarios] = useState([]);
+  const [scenarioName, setScenarioName] = useState('');
+  
+  // AI Chat state
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiResponse, setAiResponse] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState([]);
   
   const [actualSpending] = useState({
     mortgage: 4472, heloc: 1528, therapy: 882, shopping: 1890, childcare: 889,
@@ -203,12 +169,13 @@ export default function GoodlevDashboard() {
 
   const apiUrl = import.meta.env.VITE_API_URL || 'https://goodlevdashboard.up.railway.app';
   const apiKey = import.meta.env.VITE_API_KEY || '';
-  
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
     if (apiKey && isAuthenticated) {
-      fetch(`${apiUrl}/health`).then(res => { if (res.ok) setIsConnected(true); }).catch(() => {});
+      fetch(`${apiUrl}/health`, { headers: { 'X-API-Key': apiKey } })
+        .then(res => { if (res.ok) setIsConnected(true); })
+        .catch(() => {});
     }
   }, [isAuthenticated, apiKey, apiUrl]);
 
@@ -235,41 +202,131 @@ export default function GoodlevDashboard() {
 
   const monthlyRetirement = (BASELINE.totalAnnualRetirement / 12) + retirementExtra;
   const retirementProjection = useMemo(() => calculateRetirementGrowth(BASELINE.totalRetirement, monthlyRetirement, 20), [monthlyRetirement]);
+  
+  const education529 = useMemo(() => calculate529Growth(BASELINE.balance529, educationExtra, 11), [educationExtra]);
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('dashboard_authenticated');
-    setIsAuthenticated(false);
-  };
+  const handleLogout = () => { sessionStorage.removeItem('dashboard_authenticated'); setIsAuthenticated(false); };
 
   const categoryData = Object.entries(BASELINE.categories).map(([key, cat]) => ({
     name: cat.name, budgeted: cat.budgeted, actual: actualSpending[key] || 0,
   }));
 
-  if (!isAuthenticated) {
-    return <LoginScreen onLogin={() => setIsAuthenticated(true)} />;
-  }
+  const saveScenario = () => {
+    if (!scenarioName.trim()) return;
+    const newScenario = {
+      id: Date.now(),
+      name: scenarioName,
+      createdAt: new Date().toISOString(),
+      data: {
+        philosophy, helocExtra, retirementExtra, emergencyExtra, educationExtra,
+        projections: {
+          helocPayoff: helocWithExtra,
+          retirement: retirementProjection.finalBalance,
+          education: education529.finalBalance,
+        }
+      }
+    };
+    setScenarios([...scenarios, newScenario]);
+    setScenarioName('');
+  };
+
+  const loadScenario = (scenario) => {
+    setPhilosophy(scenario.data.philosophy);
+    setHelocExtra(scenario.data.helocExtra);
+    setRetirementExtra(scenario.data.retirementExtra);
+    setEmergencyExtra(scenario.data.emergencyExtra);
+    setEducationExtra(scenario.data.educationExtra);
+  };
+
+  const deleteScenario = (id) => setScenarios(scenarios.filter(s => s.id !== id));
+
+  // Build financial context for AI
+  const buildFinancialContext = () => `
+CURRENT FINANCIAL SNAPSHOT (January 2026):
+- Monthly Income: ${formatCurrency(BASELINE.monthlyIncome)}
+- Monthly Surplus: ${formatCurrency(actualSurplus)}
+- Current Allocation: HELOC +${formatCurrency(helocExtra)}, Retirement +${formatCurrency(retirementExtra)}, Emergency +${formatCurrency(emergencyExtra)}, Education +${formatCurrency(educationExtra)}
+
+DEBT:
+- HELOC Balance: ${formatCurrency(BASELINE.helocBalance)} at 6.32% (draw period ends Jan 2032)
+- With current extra payments: Payoff ${helocWithExtra.payoffDate} (${helocWithExtra.months} months), saving ${formatCurrency(interestSaved)} in interest
+- Mortgage: $468,000 at 2.25% (keep this - great rate)
+
+RETIREMENT:
+- Current Balance: ${formatCurrency(BASELINE.totalRetirement)}
+- Annual Contributions: ${formatCurrency(BASELINE.totalAnnualRetirement)}
+- Projected at 60: ${formatCurrency(retirementProjection.finalBalance)}
+- Target: ${formatCurrency(BASELINE.retirementTarget)}
+
+SAVINGS:
+- Emergency Fund: ${formatCurrency(BASELINE.emergencyFund)} (target: ${formatCurrency(BASELINE.emergencyTarget)})
+- 529 Education: ${formatCurrency(BASELINE.balance529)} (3 kids, ages 7, 6, 6 - overlap in college 2037-2039)
+
+SPECIAL CONSIDERATIONS:
+- Eric (40) works 80% at Fox Chase Cancer Center - excellent PPO for out-of-network therapy
+- Lauren (42) is clergy at Beth David Reform Congregation
+- Eldest child has giftedness + autism, ongoing therapy costs ~$3K/month
+- Healthcare coverage is critical for retirement timing
+
+CURRENT PHILOSOPHY: ${PHILOSOPHIES[philosophy].name}
+`;
+
+  const askAI = async () => {
+    if (!aiQuestion.trim()) return;
+    setAiLoading(true);
+    const context = buildFinancialContext();
+    
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          messages: [...chatHistory, { role: 'user', content: `${context}\n\nQUESTION: ${aiQuestion}` }],
+          system: `You are a knowledgeable financial advisor. Be specific with numbers. Keep responses concise (2-3 paragraphs). Reference actual data. Consider special circumstances (therapy costs, 3 kids in college simultaneously, healthcare needs).`
+        })
+      });
+      
+      const data = await response.json();
+      const answer = data.content?.[0]?.text || 'Unable to get response.';
+      setAiResponse(answer);
+      setChatHistory(prev => [...prev, { role: 'user', content: aiQuestion }, { role: 'assistant', content: answer }]);
+      setAiQuestion('');
+    } catch (error) {
+      setAiResponse('Error connecting to AI. Please try again.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  if (!isAuthenticated) return <LoginScreen onLogin={() => setIsAuthenticated(true)} />;
 
   return (
     <div style={{ minHeight: '100vh', background: COLORS.bg, fontFamily: 'system-ui, sans-serif' }}>
+      {/* HEADER */}
       <header style={{ background: `linear-gradient(135deg, ${COLORS.primary} 0%, #0A1F33 100%)`, padding: '20px 24px', color: '#FFF' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div>
-              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Goodlev Family Dashboard</h1>
-              <p style={{ margin: '4px 0 0 0', opacity: 0.8, fontSize: 13 }}>Financial Planning & Budget Tracking</p>
+              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Family Financial Dashboard</h1>
+              <p style={{ margin: '4px 0 0 0', opacity: 0.8, fontSize: 13 }}>Planning & Budget Tracking</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.15)', borderRadius: 8, fontSize: 14 }}>
                 Surplus: <strong>{formatCurrency(actualSurplus)}</strong>/mo
               </div>
-              <button onClick={handleLogout} style={{
-                padding: '8px 12px', background: 'rgba(255,255,255,0.1)', color: '#FFF',
-                border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, cursor: 'pointer', fontSize: 13,
-              }}>Logout</button>
+              <button onClick={handleLogout} style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.1)', color: '#FFF', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Logout</button>
             </div>
           </div>
           <nav style={{ marginTop: 20, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {[{ id: 'overview', label: '📊 Overview' }, { id: 'budget', label: '💰 Budget' }, { id: 'allocation', label: '🎯 Allocation' }].map(tab => (
+            {[
+              { id: 'overview', label: '📊 Overview' },
+              { id: 'budget', label: '💰 Budget' },
+              { id: 'allocation', label: '🎯 Allocation' },
+              { id: 'scenarios', label: '📋 Scenarios' },
+              { id: 'advisor', label: '🤖 Ask AI' },
+            ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
                 padding: '10px 18px', background: activeTab === tab.id ? COLORS.accent : 'transparent',
                 color: '#FFF', border: 'none', borderRadius: '8px 8px 0 0', fontWeight: activeTab === tab.id ? 600 : 400, cursor: 'pointer', fontSize: 14,
@@ -280,13 +337,15 @@ export default function GoodlevDashboard() {
       </header>
 
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
+        {/* CONNECTION STATUS */}
         <div style={{ background: isConnected ? '#D5F5E3' : '#FEF9E7', border: `1px solid ${isConnected ? COLORS.positive : COLORS.warning}`, borderRadius: 12, padding: 16, marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: isConnected ? COLORS.positive : COLORS.warning }} />
-            <span style={{ fontWeight: 600, color: COLORS.text }}>{isConnected ? '✓ Connected to YNAB API' : 'Demo Mode - Configure VITE_API_KEY in Vercel'}</span>
+            <span style={{ fontWeight: 600, color: COLORS.text }}>{isConnected ? '✓ Connected to YNAB API' : 'Demo Mode - Add VITE_API_KEY to Vercel env vars & redeploy'}</span>
           </div>
         </div>
 
+        {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
@@ -295,6 +354,7 @@ export default function GoodlevDashboard() {
                 { label: 'HELOC Balance', value: formatCurrency(BASELINE.helocBalance), sub: `Payoff: ${helocWithExtra.payoffDate}`, color: COLORS.heloc },
                 { label: 'Retirement', value: formatCurrency(BASELINE.totalRetirement), sub: `Target: ${formatCurrency(BASELINE.retirementTarget)}`, color: COLORS.retirement },
                 { label: 'Emergency Fund', value: formatCurrency(BASELINE.emergencyFund), sub: `Target: ${formatCurrency(BASELINE.emergencyTarget)}`, color: COLORS.emergency },
+                { label: '529 Balance', value: formatCurrency(BASELINE.balance529), sub: `Projected: ${formatCurrency(education529.finalBalance)}`, color: COLORS.education },
               ].map(card => (
                 <div key={card.label} style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${card.color}` }}>
                   <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 4 }}>{card.label}</div>
@@ -312,7 +372,7 @@ export default function GoodlevDashboard() {
                   <XAxis dataKey="age" tick={{ fill: COLORS.textMuted, fontSize: 12 }} />
                   <YAxis tickFormatter={v => `$${(v / 1000000).toFixed(1)}M`} tick={{ fill: COLORS.textMuted, fontSize: 12 }} />
                   <Tooltip formatter={v => formatCurrency(v)} labelFormatter={age => `Age ${age}`} />
-                  <ReferenceLine y={BASELINE.retirementTarget} stroke={COLORS.accent} strokeDasharray="5 5" />
+                  <ReferenceLine y={BASELINE.retirementTarget} stroke={COLORS.accent} strokeDasharray="5 5" label={{ value: '$4M Target', fill: COLORS.accent, fontSize: 11 }} />
                   <Area type="monotone" dataKey="balance" stroke={COLORS.retirement} fill="url(#retGrad)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -324,6 +384,7 @@ export default function GoodlevDashboard() {
           </div>
         )}
 
+        {/* BUDGET TAB */}
         {activeTab === 'budget' && (
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, marginBottom: 24 }}>
@@ -338,7 +399,7 @@ export default function GoodlevDashboard() {
               </div>
               <div style={{ background: `linear-gradient(135deg, ${COLORS.primary} 0%, #1A3A5C 100%)`, borderRadius: 12, padding: 24, color: '#FFF' }}>
                 <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>HELOC Impact</h3>
-                <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 8 }}>Extra {formatCurrency(helocExtra)}/mo to HELOC:</div>
+                <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 8 }}>Extra {formatCurrency(helocExtra)}/mo:</div>
                 <div style={{ display: 'flex', gap: 24 }}>
                   <div><div style={{ fontSize: 11, opacity: 0.7 }}>Payoff Date</div><div style={{ fontSize: 18, fontWeight: 700 }}>{helocWithExtra.payoffDate}</div></div>
                   <div><div style={{ fontSize: 11, opacity: 0.7 }}>Interest Saved</div><div style={{ fontSize: 18, fontWeight: 700, color: '#58D68D' }}>{formatCurrency(interestSaved)}</div></div>
@@ -353,6 +414,7 @@ export default function GoodlevDashboard() {
                   <XAxis type="number" tickFormatter={v => `$${v}`} />
                   <YAxis type="category" dataKey="name" tick={{ fill: COLORS.textMuted, fontSize: 12 }} width={80} />
                   <Tooltip formatter={v => formatCurrency(v)} />
+                  <Legend />
                   <Bar dataKey="budgeted" fill={COLORS.plan} name="Budgeted" radius={[0, 4, 4, 0]} />
                   <Bar dataKey="actual" fill={COLORS.positive} name="Actual" radius={[0, 4, 4, 0]} />
                 </BarChart>
@@ -361,6 +423,7 @@ export default function GoodlevDashboard() {
           </div>
         )}
 
+        {/* ALLOCATION TAB */}
         {activeTab === 'allocation' && (
           <div>
             <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, marginBottom: 24 }}>
@@ -373,6 +436,7 @@ export default function GoodlevDashboard() {
                   }}>{preset.name}</button>
                 ))}
               </div>
+              {PHILOSOPHIES[philosophy] && <p style={{ margin: '12px 0 0 0', color: COLORS.textLight, fontSize: 13 }}>{PHILOSOPHIES[philosophy].desc}</p>}
             </div>
             <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, marginBottom: 24 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -402,31 +466,133 @@ export default function GoodlevDashboard() {
                 </div>
               ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
-              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.heloc}` }}>
-                <h4 style={{ margin: '0 0 16px 0', color: COLORS.heloc }}>🏦 HELOC Payoff</h4>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Payoff Date</span><span style={{ fontWeight: 600 }}>{helocWithExtra.payoffDate}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Months</span><span style={{ fontWeight: 600 }}>{helocWithExtra.months}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: COLORS.textLight }}>Interest Saved</span><span style={{ fontWeight: 600, color: COLORS.positive }}>{formatCurrency(interestSaved)}</span></div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.heloc}` }}>
+                <h4 style={{ margin: '0 0 12px 0', color: COLORS.heloc, fontSize: 15 }}>🏦 HELOC Payoff</h4>
+                <div style={{ fontSize: 13 }}><span style={{ color: COLORS.textLight }}>Payoff:</span> <strong>{helocWithExtra.payoffDate}</strong></div>
+                <div style={{ fontSize: 13 }}><span style={{ color: COLORS.textLight }}>Saved:</span> <strong style={{ color: COLORS.positive }}>{formatCurrency(interestSaved)}</strong></div>
               </div>
-              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.retirement}` }}>
-                <h4 style={{ margin: '0 0 16px 0', color: COLORS.retirement }}>📈 Retirement at 60</h4>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Projected</span><span style={{ fontWeight: 600 }}>{formatCurrency(retirementProjection.finalBalance)}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Monthly Contrib</span><span style={{ fontWeight: 600 }}>{formatCurrency(monthlyRetirement)}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: COLORS.textLight }}>vs Target</span><span style={{ fontWeight: 600, color: retirementProjection.finalBalance >= BASELINE.retirementTarget ? COLORS.positive : COLORS.warning }}>{retirementProjection.finalBalance >= BASELINE.retirementTarget ? '+' : ''}{formatCurrency(retirementProjection.finalBalance - BASELINE.retirementTarget)}</span></div>
+              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.retirement}` }}>
+                <h4 style={{ margin: '0 0 12px 0', color: COLORS.retirement, fontSize: 15 }}>📈 Retirement @60</h4>
+                <div style={{ fontSize: 13 }}><span style={{ color: COLORS.textLight }}>Projected:</span> <strong>{formatCurrency(retirementProjection.finalBalance)}</strong></div>
+                <div style={{ fontSize: 13 }}><span style={{ color: COLORS.textLight }}>vs Target:</span> <strong style={{ color: retirementProjection.finalBalance >= BASELINE.retirementTarget ? COLORS.positive : COLORS.warning }}>{formatCurrency(retirementProjection.finalBalance - BASELINE.retirementTarget)}</strong></div>
               </div>
-              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.emergency}` }}>
-                <h4 style={{ margin: '0 0 16px 0', color: COLORS.emergency }}>🛡️ Emergency Fund</h4>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Current</span><span style={{ fontWeight: 600 }}>{formatCurrency(BASELINE.emergencyFund)}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ color: COLORS.textLight }}>Target</span><span style={{ fontWeight: 600 }}>{formatCurrency(BASELINE.emergencyTarget)}</span></div>
-                <div style={{ height: 8, background: COLORS.border, borderRadius: 4, overflow: 'hidden', marginTop: 8 }}><div style={{ width: `${Math.min(100, (BASELINE.emergencyFund / BASELINE.emergencyTarget) * 100)}%`, height: '100%', background: COLORS.emergency }} /></div>
-                <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 4 }}>{Math.round((BASELINE.emergencyFund / BASELINE.emergencyTarget) * 100)}% funded</div>
+              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.emergency}` }}>
+                <h4 style={{ margin: '0 0 12px 0', color: COLORS.emergency, fontSize: 15 }}>🛡️ Emergency Fund</h4>
+                <div style={{ fontSize: 13 }}><span style={{ color: COLORS.textLight }}>Current:</span> <strong>{formatCurrency(BASELINE.emergencyFund)}</strong></div>
+                <div style={{ height: 6, background: COLORS.border, borderRadius: 3, marginTop: 8 }}><div style={{ width: `${(BASELINE.emergencyFund / BASELINE.emergencyTarget) * 100}%`, height: '100%', background: COLORS.emergency, borderRadius: 3 }} /></div>
+              </div>
+              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}`, borderTop: `4px solid ${COLORS.education}` }}>
+                <h4 style={{ margin: '0 0 12px 0', color: COLORS.education, fontSize: 15 }}>🎓 529 Education</h4>
+                <div style={{ fontSize: 13 }}><span style={{ color: COLORS.textLight }}>Current:</span> <strong>{formatCurrency(BASELINE.balance529)}</strong></div>
+                <div style={{ fontSize: 13 }}><span style={{ color: COLORS.textLight }}>@College:</span> <strong>{formatCurrency(education529.finalBalance)}</strong></div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SCENARIOS TAB */}
+        {activeTab === 'scenarios' && (
+          <div>
+            <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, marginBottom: 24 }}>
+              <h3 style={{ margin: '0 0 16px 0', color: COLORS.text }}>Save Current Scenario</h3>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <input type="text" value={scenarioName} onChange={e => setScenarioName(e.target.value)} placeholder="Scenario name (e.g., 'Aggressive HELOC')"
+                  style={{ flex: 1, minWidth: 200, padding: '10px 14px', border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14 }} />
+                <button onClick={saveScenario} disabled={!scenarioName.trim()} style={{
+                  padding: '10px 20px', background: scenarioName.trim() ? COLORS.accent : COLORS.border, color: '#FFF', border: 'none', borderRadius: 8, fontWeight: 600, cursor: scenarioName.trim() ? 'pointer' : 'not-allowed'
+                }}>Save Scenario</button>
+              </div>
+              <div style={{ marginTop: 16, padding: 16, background: COLORS.bg, borderRadius: 8 }}>
+                <div style={{ fontSize: 13, color: COLORS.textLight }}>Current Settings:</div>
+                <div style={{ fontSize: 14, marginTop: 8 }}>
+                  <strong>{PHILOSOPHIES[philosophy].name}</strong> • HELOC +{formatCurrency(helocExtra)} • Retirement +{formatCurrency(retirementExtra)} • Emergency +{formatCurrency(emergencyExtra)} • 529 +{formatCurrency(educationExtra)}
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}` }}>
+              <h3 style={{ margin: '0 0 16px 0', color: COLORS.text }}>Saved Scenarios</h3>
+              {scenarios.length === 0 ? (
+                <div style={{ color: COLORS.textMuted, padding: 40, textAlign: 'center' }}>No scenarios saved yet. Adjust allocation sliders and save to compare.</div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                    <thead>
+                      <tr style={{ borderBottom: `2px solid ${COLORS.border}` }}>
+                        <th style={{ padding: 12, textAlign: 'left', color: COLORS.textMuted }}>Scenario</th>
+                        <th style={{ padding: 12, textAlign: 'right', color: COLORS.textMuted }}>HELOC Extra</th>
+                        <th style={{ padding: 12, textAlign: 'right', color: COLORS.textMuted }}>HELOC Payoff</th>
+                        <th style={{ padding: 12, textAlign: 'right', color: COLORS.textMuted }}>Retirement @60</th>
+                        <th style={{ padding: 12, textAlign: 'right', color: COLORS.textMuted }}>529 @College</th>
+                        <th style={{ padding: 12, textAlign: 'center', color: COLORS.textMuted }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scenarios.map(scenario => (
+                        <tr key={scenario.id} style={{ borderBottom: `1px solid ${COLORS.borderLight}` }}>
+                          <td style={{ padding: 12 }}><div style={{ fontWeight: 600 }}>{scenario.name}</div><div style={{ fontSize: 11, color: COLORS.textMuted }}>{new Date(scenario.createdAt).toLocaleDateString()}</div></td>
+                          <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(scenario.data.helocExtra)}/mo</td>
+                          <td style={{ padding: 12, textAlign: 'right' }}>{scenario.data.projections.helocPayoff.payoffDate}</td>
+                          <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(scenario.data.projections.retirement)}</td>
+                          <td style={{ padding: 12, textAlign: 'right' }}>{formatCurrency(scenario.data.projections.education)}</td>
+                          <td style={{ padding: 12, textAlign: 'center' }}>
+                            <button onClick={() => loadScenario(scenario)} style={{ padding: '4px 10px', marginRight: 8, background: COLORS.plan, color: '#FFF', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Load</button>
+                            <button onClick={() => deleteScenario(scenario.id)} style={{ padding: '4px 10px', background: COLORS.negative, color: '#FFF', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Delete</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ASK AI TAB */}
+        {activeTab === 'advisor' && (
+          <div>
+            <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, marginBottom: 24 }}>
+              <h3 style={{ margin: '0 0 8px 0', color: COLORS.text }}>🤖 Ask Your AI Financial Advisor</h3>
+              <p style={{ color: COLORS.textLight, margin: '0 0 16px 0', fontSize: 14 }}>Get personalized advice based on your actual financial data:</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                {["Should I prioritize HELOC or retirement?", "Am I on track for retirement?", "How should I handle 3 kids in college overlap?", "What if I increase HELOC payments by $500?"].map(q => (
+                  <button key={q} onClick={() => setAiQuestion(q)} style={{ padding: '6px 12px', background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, fontSize: 12, color: COLORS.textLight, cursor: 'pointer' }}>{q}</button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input type="text" value={aiQuestion} onChange={e => setAiQuestion(e.target.value)} onKeyDown={e => e.key === 'Enter' && askAI()} placeholder="Ask a question about your finances..."
+                  style={{ flex: 1, padding: '12px 16px', border: `1px solid ${COLORS.border}`, borderRadius: 8, fontSize: 14 }} />
+                <button onClick={askAI} disabled={aiLoading || !aiQuestion.trim()} style={{
+                  padding: '12px 24px', background: aiLoading ? COLORS.textMuted : COLORS.accent, color: '#FFF', border: 'none', borderRadius: 8, fontWeight: 600, cursor: aiLoading ? 'wait' : 'pointer'
+                }}>{aiLoading ? '...' : 'Ask'}</button>
+              </div>
+            </div>
+            {aiResponse && (
+              <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 24, border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${COLORS.accent}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 20 }}>🤖</span>
+                  <span style={{ fontWeight: 600, color: COLORS.text }}>AI Advisor</span>
+                </div>
+                <div style={{ color: COLORS.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{aiResponse}</div>
+              </div>
+            )}
+            <div style={{ background: COLORS.bg, borderRadius: 12, padding: 20, marginTop: 24 }}>
+              <h4 style={{ margin: '0 0 12px 0', color: COLORS.textMuted, fontSize: 14 }}>📋 Data Being Analyzed</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, fontSize: 13 }}>
+                <div><span style={{ color: COLORS.textMuted }}>Surplus:</span> <strong>{formatCurrency(actualSurplus)}/mo</strong></div>
+                <div><span style={{ color: COLORS.textMuted }}>HELOC:</span> <strong>{formatCurrency(BASELINE.helocBalance)}</strong></div>
+                <div><span style={{ color: COLORS.textMuted }}>Retirement:</span> <strong>{formatCurrency(BASELINE.totalRetirement)}</strong></div>
+                <div><span style={{ color: COLORS.textMuted }}>Emergency:</span> <strong>{formatCurrency(BASELINE.emergencyFund)}</strong></div>
+                <div><span style={{ color: COLORS.textMuted }}>529:</span> <strong>{formatCurrency(BASELINE.balance529)}</strong></div>
+                <div><span style={{ color: COLORS.textMuted }}>Philosophy:</span> <strong>{PHILOSOPHIES[philosophy].name}</strong></div>
               </div>
             </div>
           </div>
         )}
       </main>
-      <footer style={{ padding: 20, textAlign: 'center', color: COLORS.textMuted, fontSize: 12, borderTop: `1px solid ${COLORS.border}` }}>Goodlev Family Dashboard • YNAB + Claude</footer>
+      <footer style={{ padding: 20, textAlign: 'center', color: COLORS.textMuted, fontSize: 12, borderTop: `1px solid ${COLORS.border}` }}>Family Financial Dashboard • YNAB + Claude</footer>
     </div>
   );
 }
