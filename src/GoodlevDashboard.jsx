@@ -522,13 +522,16 @@ function TransactionsPanel({ apiUrl, categories }) {
   const [days, setDays] = useState(14);
   const [filter, setFilter] = useState('all');
   
+  const [error, setError] = useState(null);
+  
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch(`${apiUrl}/api/transactions?days=${days}`);
       const data = await res.json();
       setTransactions(data.data?.transactions || []);
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error(err); setError('Failed to load transactions'); }
     setLoading(false);
   }, [apiUrl, days]);
   
@@ -537,16 +540,24 @@ function TransactionsPanel({ apiUrl, categories }) {
   const updateTransaction = async (id) => {
     if (!selectedCategory) return;
     setSaving(true);
+    setError(null);
     try {
-      await fetch(`${apiUrl}/api/transactions/${id}`, {
+      const res = await fetch(`${apiUrl}/api/transactions/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category_name: selectedCategory })
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Update failed (${res.status})`);
+      }
       setEditingId(null);
       setSelectedCategory('');
       fetchTransactions();
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error(err); 
+      setError(err.message || 'Failed to update transaction');
+    }
     setSaving(false);
   };
   
@@ -570,6 +581,12 @@ function TransactionsPanel({ apiUrl, categories }) {
         </button>
       </div>
     }>
+      {error && (
+        <div style={{ padding: 12, marginBottom: 12, background: COLORS.negativeLight, borderRadius: 8, color: COLORS.negative, fontSize: 13 }}>
+          ⚠️ {error}
+          <button onClick={() => setError(null)} style={{ marginLeft: 12, background: 'transparent', border: 'none', cursor: 'pointer' }}>✕</button>
+        </div>
+      )}
       <div style={{ maxHeight: 450, overflowY: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead><tr style={{ background: COLORS.bg, position: 'sticky', top: 0 }}>
