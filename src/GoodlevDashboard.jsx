@@ -67,7 +67,7 @@ function LoginScreen({ onLogin }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     // Simple client-side check - real auth is via API key
-    if (password === 'goodlev2026' || password === 'family') {
+    if (password === import.meta.env.VITE_DASHBOARD_PASSWORD) {
       sessionStorage.setItem('dashboard_authenticated', 'true');
       onLogin();
     } else {
