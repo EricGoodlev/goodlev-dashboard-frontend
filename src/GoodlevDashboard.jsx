@@ -421,6 +421,256 @@ function ScenarioComparison({ apiUrl, apiKey }) {
 }
 
 // =============================================================================
+// BUDGET EDITOR
+// =============================================================================
+function BudgetEditor({ apiUrl, apiKey }) {
+  const [targets, setTargets] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+  const [editValue, setEditValue] = useState('');
+  const [newCategory, setNewCategory] = useState('');
+  const [newAmount, setNewAmount] = useState('');
+
+  useEffect(() => {
+    fetch(`${apiUrl}/api/budget-targets`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => r.json())
+      .then(data => setTargets(data.targets || {}))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [apiUrl, apiKey]);
+
+  const saveTarget = async (category) => {
+    const newValue = parseFloat(editValue);
+    if (isNaN(newValue)) return;
+    
+    await fetch(`${apiUrl}/api/budget-targets`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ [category]: newValue })
+    });
+    
+    setTargets(prev => ({ ...prev, [category]: newValue }));
+    setEditing(null);
+  };
+
+  const addCategory = async () => {
+    if (!newCategory || !newAmount) return;
+    
+    await fetch(`${apiUrl}/api/budget-targets/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ category: newCategory.toLowerCase().replace(/\s+/g, '_'), target: parseFloat(newAmount) })
+    });
+    
+    setTargets(prev => ({ ...prev, [newCategory.toLowerCase().replace(/\s+/g, '_')]: parseFloat(newAmount) }));
+    setNewCategory('');
+    setNewAmount('');
+  };
+
+  const totalBudget = Object.values(targets).reduce((a, b) => a + b, 0);
+
+  if (loading) return <div style={{ padding: 20, color: COLORS.textMuted }}>Loading budget...</div>;
+
+  return (
+    <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+      <h3 style={{ margin: '0 0 8px', color: COLORS.text }}>✏️ Edit Budget Targets</h3>
+      <p style={{ fontSize: 12, color: COLORS.textMuted, margin: '0 0 16px' }}>
+        Total monthly budget: <strong>{formatCurrency(totalBudget)}</strong>
+      </p>
+
+      <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+        {Object.entries(targets).sort((a, b) => b[1] - a[1]).map(([cat, amount]) => (
+          <div key={cat} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${COLORS.border}` }}>
+            <span style={{ fontSize: 13, textTransform: 'capitalize' }}>{cat.replace(/_/g, ' ')}</span>
+            {editing === cat ? (
+              <div style={{ display: 'flex', gap: 4 }}>
+                <input type="number" value={editValue} onChange={(e) => setEditValue(e.target.value)}
+                  style={{ width: 80, padding: 4, borderRadius: 4, border: `1px solid ${COLORS.accent}`, textAlign: 'right' }} />
+                <button onClick={() => saveTarget(cat)} style={{ padding: '4px 8px', background: COLORS.accent, color: '#FFF', border: 'none', borderRadius: 4, fontSize: 11 }}>Save</button>
+                <button onClick={() => setEditing(null)} style={{ padding: '4px 8px', background: COLORS.textMuted, color: '#FFF', border: 'none', borderRadius: 4, fontSize: 11 }}>×</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 600 }}>{formatCurrency(amount)}</span>
+                <button onClick={() => { setEditing(cat); setEditValue(amount.toString()); }}
+                  style={{ padding: '2px 8px', background: COLORS.primary, color: '#FFF', border: 'none', borderRadius: 4, fontSize: 10, cursor: 'pointer' }}>Edit</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Add new category */}
+      <div style={{ marginTop: 16, padding: 12, background: COLORS.bg, borderRadius: 8 }}>
+        <p style={{ fontSize: 12, fontWeight: 600, margin: '0 0 8px' }}>Add New Category</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input type="text" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="Category name"
+            style={{ flex: 1, padding: 8, borderRadius: 4, border: `1px solid ${COLORS.border}`, fontSize: 12 }} />
+          <input type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} placeholder="Amount"
+            style={{ width: 80, padding: 8, borderRadius: 4, border: `1px solid ${COLORS.border}`, fontSize: 12 }} />
+          <button onClick={addCategory} disabled={!newCategory || !newAmount}
+            style={{ padding: '8px 12px', background: !newCategory || !newAmount ? COLORS.textMuted : COLORS.accent, color: '#FFF', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>Add</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// HISTORICAL TRENDS (Monarch + YNAB data)
+// =============================================================================
+function HistoricalTrends({ apiUrl, apiKey }) {
+  const [trends, setTrends] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [months, setMonths] = useState(12);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${apiUrl}/api/historical/trends?months=${months}`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => r.json())
+      .then(setTrends)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [months, apiUrl, apiKey]);
+
+  if (loading) return <div style={{ padding: 20, color: COLORS.textMuted }}>Loading historical data...</div>;
+  if (trends?.error) return <div style={{ padding: 20, color: COLORS.danger }}>{trends.error}</div>;
+  if (!trends?.months?.length) return <div style={{ padding: 20, color: COLORS.textMuted }}>No historical data available</div>;
+
+  // Prepare chart data
+  const chartData = trends.months.map(month => ({
+    month: month.slice(2), // YY-MM
+    total: trends.monthly_totals[month] || 0
+  }));
+
+  // Top categories by total spend
+  const topCategories = Object.entries(trends.category_stats || {}).slice(0, 10);
+
+  return (
+    <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, color: COLORS.text }}>📜 Historical Spending</h3>
+        <select value={months} onChange={(e) => setMonths(Number(e.target.value))}
+          style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}>
+          <option value={6}>6 months</option>
+          <option value={12}>12 months</option>
+          <option value={24}>2 years</option>
+          <option value={36}>3 years</option>
+          <option value={60}>5 years</option>
+        </select>
+      </div>
+
+      {/* Monthly spending trend */}
+      <ResponsiveContainer width="100%" height={200}>
+        <AreaChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+          <YAxis tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
+          <Tooltip formatter={(v) => formatCurrency(v)} />
+          <Area type="monotone" dataKey="total" fill={COLORS.primary} fillOpacity={0.3} stroke={COLORS.primary} />
+        </AreaChart>
+      </ResponsiveContainer>
+
+      {/* Top categories */}
+      <div style={{ marginTop: 16 }}>
+        <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Top Spending Categories ({months} months)</p>
+        {topCategories.map(([cat, stats]) => (
+          <div key={cat} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${COLORS.border}` }}>
+            <div>
+              <span style={{ fontSize: 12 }}>{cat.slice(0, 25)}</span>
+              <span style={{ fontSize: 10, marginLeft: 8, color: stats.trend_percent > 5 ? COLORS.danger : stats.trend_percent < -5 ? COLORS.accent : COLORS.textMuted }}>
+                {stats.trend_percent > 0 ? '↑' : '↓'}{Math.abs(stats.trend_percent).toFixed(0)}%
+              </span>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontWeight: 600, fontSize: 12 }}>{formatCurrency(stats.total)}</span>
+              <span style={{ fontSize: 10, color: COLORS.textMuted, marginLeft: 8 }}>~{formatCurrency(stats.average)}/mo</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// NET WORTH BREAKDOWN
+// =============================================================================
+function NetWorthBreakdown({ apiUrl, apiKey }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${apiUrl}/api/net-worth`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => r.json())
+      .then(setData)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [apiUrl, apiKey]);
+
+  if (loading) return <div style={{ padding: 20, color: COLORS.textMuted }}>Calculating net worth...</div>;
+  if (!data) return null;
+
+  const assetColors = { checking_savings: COLORS.info, retirement: COLORS.accent, investment: COLORS.purple, '529_education': COLORS.warning, real_estate: COLORS.primary, other_assets: COLORS.textMuted };
+  const pieData = Object.entries(data.assets).filter(([_, v]) => v > 0).map(([k, v]) => ({ name: k.replace(/_/g, ' '), value: v, color: assetColors[k] || COLORS.textMuted }));
+
+  return (
+    <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+      <h3 style={{ margin: '0 0 16px', color: COLORS.text }}>💰 Net Worth Breakdown</h3>
+
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+        <div style={{ padding: 12, background: `${COLORS.accent}15`, borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ fontSize: 11, color: COLORS.textMuted, margin: 0 }}>Total Assets</p>
+          <p style={{ fontSize: 18, fontWeight: 700, color: COLORS.accent, margin: '4px 0 0' }}>{formatCurrency(data.total_assets)}</p>
+        </div>
+        <div style={{ padding: 12, background: `${COLORS.danger}15`, borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ fontSize: 11, color: COLORS.textMuted, margin: 0 }}>Total Liabilities</p>
+          <p style={{ fontSize: 18, fontWeight: 700, color: COLORS.danger, margin: '4px 0 0' }}>{formatCurrency(data.total_liabilities)}</p>
+        </div>
+        <div style={{ padding: 12, background: `${COLORS.primary}15`, borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ fontSize: 11, color: COLORS.textMuted, margin: 0 }}>Net Worth</p>
+          <p style={{ fontSize: 18, fontWeight: 700, color: COLORS.primary, margin: '4px 0 0' }}>{formatCurrency(data.net_worth)}</p>
+        </div>
+      </div>
+
+      {/* Assets pie chart */}
+      <ResponsiveContainer width="100%" height={180}>
+        <PieChart>
+          <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={({ name, percent }) => percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : ''}>
+            {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+          </Pie>
+          <Tooltip formatter={(v) => formatCurrency(v)} />
+          <Legend wrapperStyle={{ fontSize: 10 }} />
+        </PieChart>
+      </ResponsiveContainer>
+
+      {/* Asset details */}
+      <div style={{ marginTop: 12 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: COLORS.accent, marginBottom: 8 }}>Assets</p>
+        {Object.entries(data.assets).filter(([_, v]) => v > 0).map(([k, v]) => (
+          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0' }}>
+            <span style={{ textTransform: 'capitalize' }}>{k.replace(/_/g, ' ')}</span>
+            <span style={{ fontWeight: 500 }}>{formatCurrency(v)}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Liability details */}
+      <div style={{ marginTop: 12 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: COLORS.danger, marginBottom: 8 }}>Liabilities</p>
+        {Object.entries(data.liabilities).filter(([_, v]) => v > 0).map(([k, v]) => (
+          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0' }}>
+            <span style={{ textTransform: 'capitalize' }}>{k.replace(/_/g, ' ')}</span>
+            <span style={{ fontWeight: 500, color: COLORS.danger }}>-{formatCurrency(v)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
 // MANUAL ACCOUNTS
 // =============================================================================
 function ManualAccounts({ apiUrl, apiKey }) {
@@ -713,15 +963,25 @@ export default function GoodlevDashboard() {
 
         {activeTab === 'budget' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-            <BudgetVsActual data={budgetVsActual} />
-            <BudgetRecommendations apiUrl={apiUrl} apiKey={apiKey} />
+            <div>
+              <BudgetVsActual data={budgetVsActual} />
+              <div style={{ marginTop: 24 }}>
+                <BudgetRecommendations apiUrl={apiUrl} apiKey={apiKey} />
+              </div>
+            </div>
+            <BudgetEditor apiUrl={apiUrl} apiKey={apiKey} />
           </div>
         )}
 
         {activeTab === 'trends' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-            <SpendingTrends apiUrl={apiUrl} apiKey={apiKey} />
-            <BudgetRecommendations apiUrl={apiUrl} apiKey={apiKey} />
+            <HistoricalTrends apiUrl={apiUrl} apiKey={apiKey} />
+            <div>
+              <SpendingTrends apiUrl={apiUrl} apiKey={apiKey} />
+              <div style={{ marginTop: 24 }}>
+                <BudgetRecommendations apiUrl={apiUrl} apiKey={apiKey} />
+              </div>
+            </div>
           </div>
         )}
 
@@ -734,14 +994,19 @@ export default function GoodlevDashboard() {
 
         {activeTab === 'accounts' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-            <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
-              <h3 style={{ margin: '0 0 16px', color: COLORS.text }}>💳 YNAB Accounts</h3>
-              {accounts.map(a => (
-                <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${COLORS.border}` }}>
-                  <span style={{ fontSize: 13 }}>{a.name}</span>
-                  <span style={{ fontWeight: 600, color: a.balance < 0 ? COLORS.danger : COLORS.text }}>{formatCurrency(a.balance)}</span>
-                </div>
-              ))}
+            <div>
+              <NetWorthBreakdown apiUrl={apiUrl} apiKey={apiKey} />
+              <div style={{ marginTop: 24, background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+                <h3 style={{ margin: '0 0 16px', color: COLORS.text }}>💳 YNAB Accounts</h3>
+                {accounts.length === 0 ? (
+                  <p style={{ color: COLORS.textMuted }}>No accounts loaded</p>
+                ) : accounts.map(a => (
+                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${COLORS.border}` }}>
+                    <span style={{ fontSize: 13 }}>{a.name}</span>
+                    <span style={{ fontWeight: 600, color: a.balance < 0 ? COLORS.danger : COLORS.text }}>{formatCurrency(a.balance)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
             <ManualAccounts apiUrl={apiUrl} apiKey={apiKey} />
           </div>
