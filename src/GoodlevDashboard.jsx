@@ -177,55 +177,87 @@ function PeriodSelector({ periodType, setPeriodType, selectedDate, setSelectedDa
 }
 
 // =============================================================================
-// SPENDING TRENDS
+// SPENDING TRENDS (with YNAB/Historical toggle)
 // =============================================================================
 function SpendingTrends({ apiUrl, apiKey }) {
   const [trends, setTrends] = useState(null);
+  const [historicalTrends, setHistoricalTrends] = useState(null);
+  const [dataSource, setDataSource] = useState('ynab');
   const [loading, setLoading] = useState(true);
+  const [historicalInfo, setHistoricalInfo] = useState(null);
 
   useEffect(() => {
-    const fetchTrends = async () => {
+    const fetchData = async () => {
+      setLoading(true);
       try {
-        const res = await fetch(`${apiUrl}/api/spending/trends?months=6`, { headers: { 'X-API-Key': apiKey } });
-        const data = await res.json();
-        setTrends(data.trends || []);
+        // Fetch YNAB trends
+        const ynabRes = await fetch(`${apiUrl}/api/spending/trends?months=6`, { headers: { 'X-API-Key': apiKey } });
+        const ynabData = await ynabRes.json();
+        setTrends(ynabData.trends || []);
+        
+        // Fetch historical trends
+        const histRes = await fetch(`${apiUrl}/api/historical/trends?months=12`, { headers: { 'X-API-Key': apiKey } });
+        const histData = await histRes.json();
+        setHistoricalTrends(histData.trends || []);
+        setHistoricalInfo(histData.date_range);
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
-    fetchTrends();
+    fetchData();
   }, [apiUrl, apiKey]);
 
   if (loading) return <Card title="Spending Trends" icon="📈"><p style={{ color: COLORS.textMuted }}>Loading...</p></Card>;
-  if (!trends?.length) return <Card title="Spending Trends" icon="📈"><p style={{ color: COLORS.textMuted }}>No trend data</p></Card>;
+
+  const activeTrends = dataSource === 'historical' ? historicalTrends : trends;
+  const hasHistorical = historicalTrends && historicalTrends.length > 0;
 
   return (
-    <Card title="6-Month Spending Trends" icon="📈">
-      <ResponsiveContainer width="100%" height={300}>
-        <ComposedChart data={trends}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="month" />
-          <YAxis tickFormatter={formatCurrencyK} />
-          <Tooltip formatter={(v) => formatCurrency(v)} />
-          <Legend />
-          <Bar dataKey="expenses" fill={COLORS.negative} name="Expenses" />
-          <Bar dataKey="income" fill={COLORS.positive} name="Income" />
-          <Line type="monotone" dataKey="surplus" stroke={COLORS.info} strokeWidth={2} name="Surplus" />
-        </ComposedChart>
-      </ResponsiveContainer>
-      
-      <div style={{ marginTop: 20 }}>
-        <h4 style={{ margin: '0 0 12px', fontSize: 14 }}>Monthly Breakdown</h4>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-          {trends.slice(-3).map(m => (
-            <div key={m.month} style={{ padding: 12, background: COLORS.bg, borderRadius: 8 }}>
-              <strong>{m.month}</strong>
-              <p style={{ margin: '4px 0', fontSize: 13 }}>In: <span style={{ color: COLORS.positive }}>{formatCurrency(m.income)}</span></p>
-              <p style={{ margin: '4px 0', fontSize: 13 }}>Out: <span style={{ color: COLORS.negative }}>{formatCurrency(m.expenses)}</span></p>
-              <p style={{ margin: '4px 0', fontSize: 13, fontWeight: 600, color: m.surplus >= 0 ? COLORS.positive : COLORS.negative }}>Net: {formatCurrency(m.surplus)}</p>
-            </div>
-          ))}
-        </div>
+    <Card title="Spending Trends" icon="📈">
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button onClick={() => setDataSource('ynab')} style={{ padding: '6px 14px', background: dataSource === 'ynab' ? COLORS.primary : COLORS.bg, color: dataSource === 'ynab' ? '#FFF' : COLORS.text, border: `1px solid ${dataSource === 'ynab' ? COLORS.primary : COLORS.border}`, borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>YNAB (Recent)</button>
+        <button onClick={() => setDataSource('historical')} disabled={!hasHistorical} style={{ padding: '6px 14px', background: dataSource === 'historical' ? COLORS.primary : COLORS.bg, color: dataSource === 'historical' ? '#FFF' : (hasHistorical ? COLORS.text : COLORS.textMuted), border: `1px solid ${dataSource === 'historical' ? COLORS.primary : COLORS.border}`, borderRadius: 6, fontSize: 13, cursor: hasHistorical ? 'pointer' : 'not-allowed' }}>
+          Historical (Monarch) {hasHistorical && `(${historicalTrends.length} months)`}
+        </button>
       </div>
+      
+      {historicalInfo && dataSource === 'historical' && (
+        <p style={{ margin: '0 0 12px', fontSize: 12, color: COLORS.textMuted }}>
+          📅 Data from {historicalInfo.min_date} to {historicalInfo.max_date}
+        </p>
+      )}
+
+      {!activeTrends?.length ? (
+        <p style={{ color: COLORS.textMuted }}>No trend data available</p>
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={300}>
+            <ComposedChart data={activeTrends}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis tickFormatter={formatCurrencyK} />
+              <Tooltip formatter={(v) => formatCurrency(v)} />
+              <Legend />
+              <Bar dataKey="expenses" fill={COLORS.negative} name="Expenses" />
+              <Bar dataKey="income" fill={COLORS.positive} name="Income" />
+              <Line type="monotone" dataKey="surplus" stroke={COLORS.info} strokeWidth={2} name="Surplus" />
+            </ComposedChart>
+          </ResponsiveContainer>
+          
+          <div style={{ marginTop: 20 }}>
+            <h4 style={{ margin: '0 0 12px', fontSize: 14 }}>Recent Months</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+              {activeTrends.slice(-3).map(m => (
+                <div key={m.month} style={{ padding: 12, background: COLORS.bg, borderRadius: 8 }}>
+                  <strong>{m.month}</strong>
+                  <p style={{ margin: '4px 0', fontSize: 13 }}>In: <span style={{ color: COLORS.positive }}>{formatCurrency(m.income)}</span></p>
+                  <p style={{ margin: '4px 0', fontSize: 13 }}>Out: <span style={{ color: COLORS.negative }}>{formatCurrency(m.expenses)}</span></p>
+                  <p style={{ margin: '4px 0', fontSize: 13, fontWeight: 600, color: m.surplus >= 0 ? COLORS.positive : COLORS.negative }}>Net: {formatCurrency(m.surplus)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </Card>
   );
 }
@@ -393,6 +425,101 @@ function CategoryDrillDown({ apiUrl, apiKey, startDate, endDate }) {
           ))}
         </div>
       </div>
+    </Card>
+  );
+}
+
+// =============================================================================
+// HISTORICAL TRANSACTIONS VIEWER
+// =============================================================================
+function HistoricalTransactionsPanel({ apiUrl, apiKey }) {
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [info, setInfo] = useState(null);
+  const [filter, setFilter] = useState({ category: '', startDate: '', endDate: '' });
+  const [categories, setCategories] = useState([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/historical/transactions?limit=100`, { headers: { 'X-API-Key': apiKey } });
+        const data = await res.json();
+        setTransactions(data.transactions || []);
+        setInfo({ total: data.total_available, dateRange: data.date_range });
+        
+        // Extract unique categories
+        const cats = [...new Set(data.transactions.map(t => t.category))].filter(Boolean).sort();
+        setCategories(cats);
+      } catch (e) { console.error(e); }
+      finally { setLoading(false); }
+    };
+    fetchData();
+  }, [apiUrl, apiKey]);
+
+  const applyFilter = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (filter.startDate) params.append('start_date', filter.startDate);
+      if (filter.endDate) params.append('end_date', filter.endDate);
+      if (filter.category) params.append('category', filter.category);
+      params.append('limit', '500');
+      
+      const res = await fetch(`${apiUrl}/api/historical/transactions?${params}`, { headers: { 'X-API-Key': apiKey } });
+      const data = await res.json();
+      setTransactions(data.transactions || []);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+
+  if (loading && !transactions.length) return <Card title="Historical Transactions" icon="📜"><p style={{ color: COLORS.textMuted }}>Loading...</p></Card>;
+
+  return (
+    <Card title="Historical Transactions (Monarch)" icon="📜">
+      {info && (
+        <div style={{ background: COLORS.bg, padding: 12, borderRadius: 8, marginBottom: 16 }}>
+          <p style={{ margin: 0, fontSize: 13 }}>
+            <strong>{info.total?.toLocaleString()}</strong> transactions imported
+            {info.dateRange?.min_date && ` from ${info.dateRange.min_date} to ${info.dateRange.max_date}`}
+          </p>
+        </div>
+      )}
+      
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <input type="date" value={filter.startDate} onChange={e => setFilter(p => ({ ...p, startDate: e.target.value }))} style={{ padding: 8, border: `1px solid ${COLORS.border}`, borderRadius: 6 }} placeholder="Start" />
+        <input type="date" value={filter.endDate} onChange={e => setFilter(p => ({ ...p, endDate: e.target.value }))} style={{ padding: 8, border: `1px solid ${COLORS.border}`, borderRadius: 6 }} placeholder="End" />
+        <select value={filter.category} onChange={e => setFilter(p => ({ ...p, category: e.target.value }))} style={{ padding: 8, border: `1px solid ${COLORS.border}`, borderRadius: 6, minWidth: 150 }}>
+          <option value="">All Categories</option>
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <button onClick={applyFilter} style={{ padding: '8px 16px', background: COLORS.primary, color: '#FFF', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Filter</button>
+      </div>
+      
+      <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead style={{ position: 'sticky', top: 0, background: COLORS.bgCard }}>
+            <tr>
+              <th style={{ padding: 10, textAlign: 'left', borderBottom: `2px solid ${COLORS.border}` }}>Date</th>
+              <th style={{ padding: 10, textAlign: 'left', borderBottom: `2px solid ${COLORS.border}` }}>Merchant</th>
+              <th style={{ padding: 10, textAlign: 'left', borderBottom: `2px solid ${COLORS.border}` }}>Category</th>
+              <th style={{ padding: 10, textAlign: 'right', borderBottom: `2px solid ${COLORS.border}` }}>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transactions.map((t, i) => (
+              <tr key={t.id || i} style={{ background: i % 2 === 0 ? '#FFF' : COLORS.bg }}>
+                <td style={{ padding: 10 }}>{t.date}</td>
+                <td style={{ padding: 10 }}>{t.merchant || t.payee}</td>
+                <td style={{ padding: 10 }}><span style={{ padding: '2px 8px', background: COLORS.bg, borderRadius: 4, fontSize: 12 }}>{t.category}</span></td>
+                <td style={{ padding: 10, textAlign: 'right', color: t.amount >= 0 ? COLORS.positive : COLORS.negative, fontFamily: 'monospace' }}>{formatCurrency(t.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {transactions.length === 0 && <p style={{ textAlign: 'center', color: COLORS.textMuted, padding: 20 }}>No transactions found</p>}
+      </div>
+      
+      <p style={{ margin: '12px 0 0', fontSize: 12, color: COLORS.textMuted }}>Showing {transactions.length} transactions</p>
     </Card>
   );
 }
@@ -631,6 +758,7 @@ export default function GoodlevDashboard() {
   const tabs = [
     { id: 'dashboard', label: '📊 Dashboard' },
     { id: 'trends', label: '📈 Trends' },
+    { id: 'history', label: '📜 History' },
     { id: 'strategies', label: '⚖️ Strategies' },
     { id: 'accounts', label: '💳 Accounts' },
     { id: 'notes', label: '📝 Notes' },
@@ -702,6 +830,9 @@ export default function GoodlevDashboard() {
 
         {/* TRENDS TAB */}
         {activeTab === 'trends' && <SpendingTrends apiUrl={apiUrl} apiKey={apiKey} />}
+
+        {/* HISTORY TAB */}
+        {activeTab === 'history' && <HistoricalTransactionsPanel apiUrl={apiUrl} apiKey={apiKey} />}
 
         {/* STRATEGIES TAB */}
         {activeTab === 'strategies' && <StrategyComparison apiUrl={apiUrl} apiKey={apiKey} />}
