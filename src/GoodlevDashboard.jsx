@@ -421,7 +421,863 @@ function ScenarioComparison({ apiUrl, apiKey }) {
 }
 
 // =============================================================================
-// BUDGET EDITOR
+// ACTION ITEMS TAB
+// =============================================================================
+function ActionItems({ apiUrl, apiKey }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('all');
+  const [expandedId, setExpandedId] = useState(null);
+
+  useEffect(() => {
+    fetch(`${apiUrl}/api/action-items`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => r.json())
+      .then(data => setItems(data.action_items || []))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [apiUrl, apiKey]);
+
+  const updateStatus = async (itemId, newStatus) => {
+    await fetch(`${apiUrl}/api/action-items/${itemId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ status: newStatus })
+    });
+    setItems(prev => prev.map(item => 
+      item.id === itemId ? { ...item, status: newStatus } : item
+    ));
+  };
+
+  const filteredItems = filter === 'all' ? items : items.filter(i => i.priority === filter);
+  const statusColors = { not_started: COLORS.textMuted, in_progress: COLORS.warning, completed: COLORS.accent, deferred: COLORS.info };
+  const priorityColors = { high: COLORS.danger, medium: COLORS.warning, low: COLORS.accent };
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: COLORS.textMuted }}>Generating action items...</div>;
+
+  return (
+    <div>
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+        <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 16, border: `1px solid ${COLORS.border}`, textAlign: 'center' }}>
+          <p style={{ fontSize: 28, fontWeight: 700, color: COLORS.danger, margin: 0 }}>{items.filter(i => i.priority === 'high').length}</p>
+          <p style={{ fontSize: 12, color: COLORS.textMuted, margin: '4px 0 0' }}>High Priority</p>
+        </div>
+        <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 16, border: `1px solid ${COLORS.border}`, textAlign: 'center' }}>
+          <p style={{ fontSize: 28, fontWeight: 700, color: COLORS.warning, margin: 0 }}>{items.filter(i => i.priority === 'medium').length}</p>
+          <p style={{ fontSize: 12, color: COLORS.textMuted, margin: '4px 0 0' }}>Medium Priority</p>
+        </div>
+        <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 16, border: `1px solid ${COLORS.border}`, textAlign: 'center' }}>
+          <p style={{ fontSize: 28, fontWeight: 700, color: COLORS.accent, margin: 0 }}>{items.filter(i => i.priority === 'low').length}</p>
+          <p style={{ fontSize: 12, color: COLORS.textMuted, margin: '4px 0 0' }}>Low Priority</p>
+        </div>
+        <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 16, border: `1px solid ${COLORS.border}`, textAlign: 'center' }}>
+          <p style={{ fontSize: 28, fontWeight: 700, color: COLORS.accent, margin: 0 }}>{items.filter(i => i.status === 'completed').length}</p>
+          <p style={{ fontSize: 12, color: COLORS.textMuted, margin: '4px 0 0' }}>Completed</p>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {['all', 'high', 'medium', 'low'].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{ padding: '8px 16px', borderRadius: 6, fontSize: 12, cursor: 'pointer', textTransform: 'capitalize',
+              background: filter === f ? COLORS.primary : 'transparent',
+              color: filter === f ? '#FFF' : COLORS.text,
+              border: `1px solid ${filter === f ? COLORS.primary : COLORS.border}` }}>
+            {f === 'all' ? 'All Items' : `${f} Priority`}
+          </button>
+        ))}
+      </div>
+
+      {/* Action Items List */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {filteredItems.map(item => (
+          <div key={item.id} style={{ background: COLORS.bgCard, borderRadius: 12, padding: 16, border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${priorityColors[item.priority]}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 16, fontWeight: 600 }}>{item.title}</span>
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: priorityColors[item.priority], color: '#FFF' }}>{item.priority}</span>
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: COLORS.bg, color: COLORS.textMuted }}>{item.category}</span>
+                </div>
+                <p style={{ fontSize: 13, color: COLORS.textMuted, margin: 0 }}>{item.description}</p>
+              </div>
+              <select value={item.status || 'not_started'} onChange={(e) => updateStatus(item.id, e.target.value)}
+                style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${COLORS.border}`, fontSize: 11, background: `${statusColors[item.status || 'not_started']}20`, cursor: 'pointer' }}>
+                <option value="not_started">Not Started</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+                <option value="deferred">Deferred</option>
+              </select>
+            </div>
+
+            <div style={{ padding: 12, background: COLORS.bg, borderRadius: 8, marginBottom: 8 }}>
+              <p style={{ fontSize: 12, margin: 0 }}><strong>Action:</strong> {item.action}</p>
+              {item.potential_gain && <p style={{ fontSize: 12, margin: '8px 0 0', color: COLORS.accent }}><strong>Potential Gain:</strong> {item.potential_gain}</p>}
+            </div>
+
+            <button onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+              style={{ background: 'none', border: 'none', color: COLORS.info, fontSize: 12, cursor: 'pointer', padding: 0 }}>
+              {expandedId === item.id ? '▼ Hide Steps' : '▶ Show Steps'}
+            </button>
+
+            {expandedId === item.id && item.steps && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${COLORS.border}` }}>
+                <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Steps to Complete:</p>
+                {item.steps.map((step, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: COLORS.textMuted, minWidth: 20 }}>{i + 1}.</span>
+                    <span style={{ fontSize: 12 }}>{step}</span>
+                  </div>
+                ))}
+                {item.note && (
+                  <p style={{ fontSize: 11, fontStyle: 'italic', color: COLORS.warning, marginTop: 8, padding: 8, background: `${COLORS.warning}10`, borderRadius: 4 }}>
+                    ⚠️ {item.note}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// CUSTOM SCENARIO BUILDER (with sliders)
+// =============================================================================
+function CustomScenarioBuilder({ apiUrl, apiKey, surplus = 3922 }) {
+  const [allocations, setAllocations] = useState({
+    heloc_extra: 0,
+    retirement_extra: 0,
+    emergency_extra: 0,
+    education_extra: 0,
+    vacation_extra: 0
+  });
+  const [projections, setProjections] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const totalAllocated = Object.values(allocations).reduce((a, b) => a + b, 0);
+  const remaining = surplus - totalAllocated;
+
+  useEffect(() => {
+    if (totalAllocated === 0) {
+      setProjections(null);
+      return;
+    }
+    
+    const timer = setTimeout(() => {
+      setLoading(true);
+      fetch(`${apiUrl}/api/scenarios/custom`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+        body: JSON.stringify(allocations)
+      })
+        .then(r => r.json())
+        .then(setProjections)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }, 300); // Debounce
+
+    return () => clearTimeout(timer);
+  }, [allocations, apiUrl, apiKey]);
+
+  const handleSlider = (key, value) => {
+    const newValue = Math.min(value, remaining + allocations[key]);
+    setAllocations(prev => ({ ...prev, [key]: newValue }));
+  };
+
+  const sliderConfig = [
+    { key: 'heloc_extra', label: '🏠 HELOC Extra', color: COLORS.danger, description: 'Pay off debt faster, save interest' },
+    { key: 'retirement_extra', label: '📈 Retirement', color: COLORS.accent, description: 'Compound growth for future' },
+    { key: 'emergency_extra', label: '🛡️ Emergency Fund', color: COLORS.info, description: 'Safety net for unexpected expenses' },
+    { key: 'education_extra', label: '🎓 529 Education', color: COLORS.warning, description: 'Tax-free college savings' },
+    { key: 'vacation_extra', label: '✈️ Vacation', color: COLORS.purple, description: 'Annual travel budget' }
+  ];
+
+  return (
+    <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+      <h3 style={{ margin: '0 0 8px', color: COLORS.text }}>🎛️ Custom Scenario Builder</h3>
+      <p style={{ fontSize: 12, color: COLORS.textMuted, margin: '0 0 16px' }}>
+        Drag sliders to allocate your ${surplus.toLocaleString()}/month surplus
+      </p>
+
+      {/* Allocation Bar */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 12 }}>Allocated: <strong>{formatCurrency(totalAllocated)}</strong></span>
+          <span style={{ fontSize: 12, color: remaining < 0 ? COLORS.danger : COLORS.accent }}>
+            Remaining: <strong>{formatCurrency(remaining)}</strong>
+          </span>
+        </div>
+        <div style={{ height: 8, background: COLORS.bg, borderRadius: 4, overflow: 'hidden' }}>
+          <div style={{ 
+            height: '100%', 
+            width: `${Math.min(100, (totalAllocated / surplus) * 100)}%`,
+            background: remaining < 0 ? COLORS.danger : COLORS.accent,
+            transition: 'width 0.3s ease'
+          }} />
+        </div>
+      </div>
+
+      {/* Sliders */}
+      {sliderConfig.map(({ key, label, color, description }) => (
+        <div key={key} style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 13, fontWeight: 500 }}>{label}</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color }}>{formatCurrency(allocations[key])}</span>
+          </div>
+          <input type="range" min="0" max={surplus} step="50" value={allocations[key]}
+            onChange={(e) => handleSlider(key, parseInt(e.target.value))}
+            style={{ width: '100%', accentColor: color, cursor: 'pointer' }} />
+          <p style={{ fontSize: 10, color: COLORS.textMuted, margin: '2px 0 0' }}>{description}</p>
+        </div>
+      ))}
+
+      {/* Quick Presets */}
+      <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
+        <p style={{ fontSize: 11, fontWeight: 600, marginBottom: 8 }}>Quick Presets:</p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setAllocations({ heloc_extra: surplus, retirement_extra: 0, emergency_extra: 0, education_extra: 0, vacation_extra: 0 })}
+            style={{ padding: '6px 12px', fontSize: 11, borderRadius: 6, border: `1px solid ${COLORS.danger}`, background: 'transparent', color: COLORS.danger, cursor: 'pointer' }}>
+            All to HELOC
+          </button>
+          <button onClick={() => setAllocations({ heloc_extra: 0, retirement_extra: surplus, emergency_extra: 0, education_extra: 0, vacation_extra: 0 })}
+            style={{ padding: '6px 12px', fontSize: 11, borderRadius: 6, border: `1px solid ${COLORS.accent}`, background: 'transparent', color: COLORS.accent, cursor: 'pointer' }}>
+            All to Retirement
+          </button>
+          <button onClick={() => setAllocations({ heloc_extra: surplus * 0.5, retirement_extra: surplus * 0.25, emergency_extra: surplus * 0.15, education_extra: surplus * 0.1, vacation_extra: 0 })}
+            style={{ padding: '6px 12px', fontSize: 11, borderRadius: 6, border: `1px solid ${COLORS.info}`, background: 'transparent', color: COLORS.info, cursor: 'pointer' }}>
+            Balanced
+          </button>
+          <button onClick={() => setAllocations({ heloc_extra: 0, retirement_extra: 0, emergency_extra: 0, education_extra: 0, vacation_extra: 0 })}
+            style={{ padding: '6px 12px', fontSize: 11, borderRadius: 6, border: `1px solid ${COLORS.textMuted}`, background: 'transparent', color: COLORS.textMuted, cursor: 'pointer' }}>
+            Reset
+          </button>
+        </div>
+      </div>
+
+      {/* Projections */}
+      {loading && <p style={{ marginTop: 16, color: COLORS.textMuted, fontSize: 12 }}>Calculating...</p>}
+      
+      {projections && !loading && (
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
+          <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>📊 Projected Outcomes</p>
+          
+          {projections.warnings?.length > 0 && (
+            <div style={{ padding: 8, background: `${COLORS.warning}15`, borderRadius: 6, marginBottom: 12 }}>
+              {projections.warnings.map((w, i) => (
+                <p key={i} style={{ fontSize: 11, color: COLORS.warning, margin: i > 0 ? '4px 0 0' : 0 }}>⚠️ {w}</p>
+              ))}
+            </div>
+          )}
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ padding: 10, background: COLORS.bg, borderRadius: 6 }}>
+              <p style={{ fontSize: 10, color: COLORS.textMuted, margin: 0 }}>HELOC Payoff</p>
+              <p style={{ fontSize: 14, fontWeight: 600, color: COLORS.danger, margin: '2px 0 0' }}>{projections.projections?.heloc?.payoff_date}</p>
+            </div>
+            <div style={{ padding: 10, background: COLORS.bg, borderRadius: 6 }}>
+              <p style={{ fontSize: 10, color: COLORS.textMuted, margin: 0 }}>Retirement at 60</p>
+              <p style={{ fontSize: 14, fontWeight: 600, color: COLORS.accent, margin: '2px 0 0' }}>{formatCurrency(projections.projections?.retirement?.at_age_60)}</p>
+            </div>
+            <div style={{ padding: 10, background: COLORS.bg, borderRadius: 6 }}>
+              <p style={{ fontSize: 10, color: COLORS.textMuted, margin: 0 }}>Emergency Fund (1yr)</p>
+              <p style={{ fontSize: 14, fontWeight: 600, color: COLORS.info, margin: '2px 0 0' }}>{projections.projections?.emergency?.months_coverage} months</p>
+            </div>
+            <div style={{ padding: 10, background: COLORS.bg, borderRadius: 6 }}>
+              <p style={{ fontSize: 10, color: COLORS.textMuted, margin: 0 }}>529 in 10 years</p>
+              <p style={{ fontSize: 14, fontWeight: 600, color: COLORS.warning, margin: '2px 0 0' }}>{formatCurrency(projections.projections?.education?.projected_10yr)}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// ENHANCED SCENARIO COMPARISON (with tweakable sliders)
+// =============================================================================
+function ScenarioComparison({ apiUrl, apiKey }) {
+  const [scenarios, setScenarios] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null);
+  const [tweakMode, setTweakMode] = useState(false);
+  const [tweakedAllocations, setTweakedAllocations] = useState({});
+
+  useEffect(() => {
+    fetch(`${apiUrl}/api/scenarios`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => r.json())
+      .then(data => { 
+        setScenarios(data); 
+        setSelected(data?.scenarios?.[0]?.name);
+        if (data?.scenarios?.[0]) {
+          setTweakedAllocations(data.scenarios[0].allocations || {});
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [apiUrl, apiKey]);
+
+  const activeScenario = scenarios?.scenarios?.find(s => s.name === selected);
+  const surplus = scenarios?.current_surplus || 3922;
+
+  const handleSelectScenario = (name) => {
+    setSelected(name);
+    const scenario = scenarios?.scenarios?.find(s => s.name === name);
+    if (scenario?.allocations) {
+      setTweakedAllocations(scenario.allocations);
+    }
+    setTweakMode(false);
+  };
+
+  if (loading) return <div style={{ padding: 20, color: COLORS.textMuted }}>Calculating scenarios...</div>;
+  if (!scenarios?.scenarios) return null;
+
+  return (
+    <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+      <h3 style={{ margin: '0 0 8px', color: COLORS.text }}>🎯 Surplus Allocation Scenarios</h3>
+      <p style={{ fontSize: 12, color: COLORS.textMuted, margin: '0 0 16px' }}>
+        Monthly surplus: <strong>{formatCurrency(surplus)}</strong>
+      </p>
+
+      {/* Scenario Tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {scenarios.scenarios.map(s => (
+          <button key={s.name} onClick={() => handleSelectScenario(s.name)}
+            style={{ padding: '8px 12px', borderRadius: 6, border: `1px solid ${selected === s.name ? COLORS.accent : COLORS.border}`,
+              background: selected === s.name ? `${COLORS.accent}15` : 'transparent', fontSize: 12, cursor: 'pointer',
+              color: selected === s.name ? COLORS.accent : COLORS.text, fontWeight: selected === s.name ? 600 : 400 }}>
+            {s.name}
+          </button>
+        ))}
+      </div>
+
+      {activeScenario && (
+        <div>
+          <p style={{ fontSize: 13, color: COLORS.textMuted, marginBottom: 12 }}>{activeScenario.description}</p>
+          
+          {/* Tweak Toggle */}
+          <button onClick={() => setTweakMode(!tweakMode)}
+            style={{ marginBottom: 12, padding: '6px 12px', fontSize: 11, borderRadius: 6, 
+              border: `1px solid ${tweakMode ? COLORS.accent : COLORS.border}`,
+              background: tweakMode ? `${COLORS.accent}15` : 'transparent',
+              color: tweakMode ? COLORS.accent : COLORS.text, cursor: 'pointer' }}>
+            {tweakMode ? '✓ Tweaking...' : '🎛️ Tweak This Scenario'}
+          </button>
+
+          {/* Tweakable Sliders */}
+          {tweakMode && (
+            <div style={{ padding: 12, background: COLORS.bg, borderRadius: 8, marginBottom: 16 }}>
+              {Object.entries(tweakedAllocations).map(([key, value]) => (
+                <div key={key} style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, textTransform: 'capitalize' }}>{key.replace(/_/g, ' ')}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{formatCurrency(value)}</span>
+                  </div>
+                  <input type="range" min="0" max={surplus} step="50" value={value}
+                    onChange={(e) => setTweakedAllocations(prev => ({ ...prev, [key]: parseInt(e.target.value) }))}
+                    style={{ width: '100%', cursor: 'pointer' }} />
+                </div>
+              ))}
+              <p style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 8 }}>
+                Total allocated: {formatCurrency(Object.values(tweakedAllocations).reduce((a, b) => a + b, 0))} / {formatCurrency(surplus)}
+              </p>
+            </div>
+          )}
+          
+          {/* Projections */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 16 }}>
+            {Object.entries(activeScenario.projections || {}).map(([key, value]) => (
+              <div key={key} style={{ padding: 10, background: COLORS.bg, borderRadius: 8 }}>
+                <p style={{ fontSize: 10, color: COLORS.textMuted, margin: 0, textTransform: 'capitalize' }}>
+                  {key.replace(/_/g, ' ')}
+                </p>
+                <p style={{ fontSize: 14, fontWeight: 600, color: COLORS.primary, margin: '4px 0 0' }}>
+                  {typeof value === 'number' && value > 1000 ? formatCurrency(value) : value}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Pros/Cons */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ padding: 12, background: `${COLORS.accent}10`, borderRadius: 8 }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.accent, margin: '0 0 8px' }}>✓ Pros</p>
+              {activeScenario.pros?.map((p, i) => (
+                <p key={i} style={{ fontSize: 12, margin: '4px 0', color: COLORS.text }}>• {p}</p>
+              ))}
+            </div>
+            <div style={{ padding: 12, background: `${COLORS.danger}10`, borderRadius: 8 }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.danger, margin: '0 0 8px' }}>✗ Cons</p>
+              {activeScenario.cons?.map((c, i) => (
+                <p key={i} style={{ fontSize: 12, margin: '4px 0', color: COLORS.text }}>• {c}</p>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recommendation */}
+      <div style={{ marginTop: 16, padding: 12, background: `${COLORS.info}15`, borderRadius: 8, border: `1px solid ${COLORS.info}` }}>
+        <p style={{ margin: 0, fontSize: 13 }}>
+          <strong>💡 Recommended:</strong> {scenarios.recommendation}
+        </p>
+        <p style={{ margin: '8px 0 0', fontSize: 12, color: COLORS.textMuted }}>{scenarios.recommendation_reason}</p>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// TRANSACTION DRILL-DOWN (by category)
+// =============================================================================
+function TransactionDrillDown({ apiUrl, apiKey, periodDates }) {
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [dataIntegrity, setDataIntegrity] = useState(null);
+
+  // Fetch all transactions for the period
+  useEffect(() => {
+    if (!periodDates?.start) return;
+    setLoading(true);
+    
+    Promise.all([
+      fetch(`${apiUrl}/api/transactions?since_date=${periodDates.start}`, { headers: { 'X-API-Key': apiKey } }).then(r => r.json()),
+      fetch(`${apiUrl}/api/data-integrity?start_date=${periodDates.start}&end_date=${periodDates.end}`, { headers: { 'X-API-Key': apiKey } }).then(r => r.json()).catch(() => null)
+    ]).then(([txns, integrity]) => {
+      setTransactions(txns || []);
+      setDataIntegrity(integrity);
+      
+      // Build category list with totals
+      const catTotals = {};
+      (txns || []).forEach(t => {
+        if (t.amount < 0) {
+          const cat = t.category || 'Uncategorized';
+          catTotals[cat] = (catTotals[cat] || 0) + Math.abs(t.amount);
+        }
+      });
+      setCategories(Object.entries(catTotals).sort((a, b) => b[1] - a[1]));
+    }).finally(() => setLoading(false));
+  }, [periodDates, apiUrl, apiKey]);
+
+  const filteredTxns = selectedCategory 
+    ? transactions.filter(t => t.category === selectedCategory && t.amount < 0)
+    : transactions.filter(t => t.amount < 0);
+
+  return (
+    <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+      <h3 style={{ margin: '0 0 16px', color: COLORS.text }}>🔍 Transaction Details</h3>
+      
+      {/* Data Integrity Panel */}
+      {dataIntegrity && (
+        <div style={{ padding: 12, background: `${COLORS.accent}10`, borderRadius: 8, marginBottom: 16, border: `1px solid ${COLORS.accent}` }}>
+          <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.accent, margin: '0 0 8px' }}>✓ Data Integrity Verified</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 11 }}>
+            <div>
+              <span style={{ color: COLORS.textMuted }}>Transactions:</span>
+              <span style={{ marginLeft: 4, fontWeight: 600 }}>{dataIntegrity.total_transactions}</span>
+            </div>
+            <div>
+              <span style={{ color: COLORS.textMuted }}>Excluded transfers:</span>
+              <span style={{ marginLeft: 4, fontWeight: 600, color: COLORS.warning }}>{dataIntegrity.excluded_transfers}</span>
+            </div>
+            <div>
+              <span style={{ color: COLORS.textMuted }}>Excluded CC payments:</span>
+              <span style={{ marginLeft: 4, fontWeight: 600, color: COLORS.warning }}>{dataIntegrity.excluded_cc_payments}</span>
+            </div>
+          </div>
+          <p style={{ fontSize: 10, color: COLORS.textMuted, margin: '8px 0 0' }}>
+            Transfers and credit card payments are excluded to prevent double-counting
+          </p>
+        </div>
+      )}
+
+      {/* Category selector */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        <button onClick={() => setSelectedCategory(null)}
+          style={{ padding: '6px 12px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
+            background: !selectedCategory ? COLORS.primary : 'transparent',
+            color: !selectedCategory ? '#FFF' : COLORS.text,
+            border: `1px solid ${!selectedCategory ? COLORS.primary : COLORS.border}` }}>
+          All ({filteredTxns.length})
+        </button>
+        {categories.slice(0, 8).map(([cat, total]) => (
+          <button key={cat} onClick={() => setSelectedCategory(cat)}
+            style={{ padding: '6px 12px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
+              background: selectedCategory === cat ? COLORS.primary : 'transparent',
+              color: selectedCategory === cat ? '#FFF' : COLORS.text,
+              border: `1px solid ${selectedCategory === cat ? COLORS.primary : COLORS.border}` }}>
+            {cat.slice(0, 15)} ({formatCurrency(total)})
+          </button>
+        ))}
+      </div>
+
+      {/* Transaction list */}
+      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+        {loading ? (
+          <p style={{ color: COLORS.textMuted }}>Loading transactions...</p>
+        ) : filteredTxns.length === 0 ? (
+          <p style={{ color: COLORS.textMuted }}>No transactions found</p>
+        ) : (
+          filteredTxns.slice(0, 50).map((t, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${COLORS.border}`, fontSize: 12 }}>
+              <div style={{ flex: 1 }}>
+                <span style={{ fontWeight: 500 }}>{t.payee?.slice(0, 30)}</span>
+                <span style={{ marginLeft: 8, color: COLORS.textMuted, fontSize: 10 }}>{t.date}</span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontWeight: 600, color: COLORS.danger }}>{formatCurrency(Math.abs(t.amount))}</span>
+                <span style={{ display: 'block', fontSize: 10, color: COLORS.textMuted }}>{t.category?.slice(0, 20)}</span>
+              </div>
+            </div>
+          ))
+        )}
+        {filteredTxns.length > 50 && (
+          <p style={{ fontSize: 11, color: COLORS.textMuted, textAlign: 'center', padding: 8 }}>
+            Showing 50 of {filteredTxns.length} transactions
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// COMBINED BUDGET EDITOR + RECOMMENDATIONS (with Apply buttons)
+// =============================================================================
+function SmartBudgetEditor({ apiUrl, apiKey }) {
+  const [targets, setTargets] = useState({});
+  const [recommendations, setRecommendations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+  const [editValue, setEditValue] = useState('');
+  const [applying, setApplying] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`${apiUrl}/api/budget-targets`, { headers: { 'X-API-Key': apiKey } }).then(r => r.json()),
+      fetch(`${apiUrl}/api/budget/recommendations`, { headers: { 'X-API-Key': apiKey } }).then(r => r.json())
+    ]).then(([targetData, recData]) => {
+      setTargets(targetData.targets || {});
+      setRecommendations(recData.recommendations || []);
+    }).catch(console.error).finally(() => setLoading(false));
+  }, [apiUrl, apiKey]);
+
+  const saveTarget = async (category, newValue) => {
+    const value = parseFloat(newValue);
+    if (isNaN(value)) return;
+    
+    setApplying(category);
+    await fetch(`${apiUrl}/api/budget-targets`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ [category]: value })
+    });
+    
+    setTargets(prev => ({ ...prev, [category]: value }));
+    setEditing(null);
+    setApplying(null);
+    
+    // Remove the recommendation since it was applied
+    setRecommendations(prev => prev.filter(r => r.category.toLowerCase().replace(/\s+/g, '_') !== category));
+  };
+
+  const applyRecommendation = (rec) => {
+    const categoryKey = rec.category.toLowerCase().replace(/\s+/g, '_');
+    saveTarget(categoryKey, rec.suggested_budget);
+  };
+
+  const totalBudget = Object.values(targets).reduce((a, b) => a + b, 0);
+  const potentialSavings = recommendations
+    .filter(r => r.type === 'decrease')
+    .reduce((sum, r) => sum + (r.current_budget - r.suggested_budget), 0);
+
+  if (loading) return <div style={{ padding: 20, color: COLORS.textMuted }}>Analyzing budget...</div>;
+
+  return (
+    <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, color: COLORS.text }}>💡 Smart Budget Editor</h3>
+        <span style={{ fontSize: 12, color: COLORS.textMuted }}>Total: {formatCurrency(totalBudget)}/mo</span>
+      </div>
+
+      {/* Recommendations with Apply buttons */}
+      {recommendations.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.accent, marginBottom: 12 }}>
+            📊 Recommendations Based on Your Spending
+          </p>
+          
+          {potentialSavings > 0 && (
+            <div style={{ padding: 10, background: `${COLORS.accent}15`, borderRadius: 8, marginBottom: 12, fontSize: 12 }}>
+              💰 Potential reallocation: <strong>{formatCurrency(potentialSavings)}/mo</strong> to HELOC or retirement
+            </div>
+          )}
+
+          {recommendations.map((rec, i) => (
+            <div key={i} style={{ padding: 12, background: COLORS.bg, borderRadius: 8, marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                <div>
+                  <span style={{ fontWeight: 600 }}>
+                    {rec.type === 'increase' ? '⬆️' : '⬇️'} {rec.category}
+                  </span>
+                  <span style={{ fontSize: 10, marginLeft: 8, padding: '2px 6px', borderRadius: 4,
+                    background: rec.priority === 'high' ? COLORS.danger : rec.priority === 'medium' ? COLORS.warning : COLORS.accent,
+                    color: '#FFF' }}>
+                    {rec.priority}
+                  </span>
+                </div>
+                <button onClick={() => applyRecommendation(rec)} disabled={applying === rec.category}
+                  style={{ padding: '6px 12px', background: COLORS.accent, color: '#FFF', border: 'none', 
+                    borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    opacity: applying === rec.category ? 0.5 : 1 }}>
+                  {applying === rec.category ? 'Applying...' : 'Apply →'}
+                </button>
+              </div>
+              <p style={{ fontSize: 11, color: COLORS.textMuted, margin: '0 0 8px' }}>{rec.reason}</p>
+              <div style={{ fontSize: 12 }}>
+                <span style={{ color: COLORS.danger }}>{formatCurrency(rec.current_budget)}</span>
+                <span style={{ margin: '0 8px' }}>→</span>
+                <span style={{ color: COLORS.accent, fontWeight: 600 }}>{formatCurrency(rec.suggested_budget)}</span>
+                {rec.type === 'decrease' && (
+                  <span style={{ marginLeft: 8, fontSize: 10, color: COLORS.accent }}>
+                    (saves {formatCurrency(rec.current_budget - rec.suggested_budget)}/mo)
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* All budget categories */}
+      <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>All Budget Categories</p>
+      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+        {Object.entries(targets).sort((a, b) => b[1] - a[1]).map(([cat, amount]) => (
+          <div key={cat} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${COLORS.border}` }}>
+            <span style={{ fontSize: 13, textTransform: 'capitalize' }}>{cat.replace(/_/g, ' ')}</span>
+            {editing === cat ? (
+              <div style={{ display: 'flex', gap: 4 }}>
+                <input type="number" value={editValue} onChange={(e) => setEditValue(e.target.value)}
+                  style={{ width: 80, padding: 4, borderRadius: 4, border: `1px solid ${COLORS.accent}`, textAlign: 'right' }} />
+                <button onClick={() => saveTarget(cat, editValue)} style={{ padding: '4px 8px', background: COLORS.accent, color: '#FFF', border: 'none', borderRadius: 4, fontSize: 11 }}>Save</button>
+                <button onClick={() => setEditing(null)} style={{ padding: '4px 8px', background: COLORS.textMuted, color: '#FFF', border: 'none', borderRadius: 4, fontSize: 11 }}>×</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 600 }}>{formatCurrency(amount)}</span>
+                <button onClick={() => { setEditing(cat); setEditValue(amount.toString()); }}
+                  style={{ padding: '2px 8px', background: COLORS.primary, color: '#FFF', border: 'none', borderRadius: 4, fontSize: 10, cursor: 'pointer' }}>Edit</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// OPTIMIZATION SUGGESTIONS (bundle services, consolidate, etc.)
+// =============================================================================
+function OptimizationSuggestions({ apiUrl, apiKey }) {
+  const [suggestions, setSuggestions] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${apiUrl}/api/optimization-suggestions`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => r.json())
+      .then(setSuggestions)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [apiUrl, apiKey]);
+
+  if (loading) return <div style={{ padding: 20, color: COLORS.textMuted }}>Analyzing optimization opportunities...</div>;
+  if (!suggestions?.suggestions?.length) {
+    return (
+      <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+        <h3 style={{ margin: '0 0 12px', color: COLORS.text }}>🎯 Optimization Opportunities</h3>
+        <p style={{ color: COLORS.textMuted, fontSize: 13 }}>No obvious optimization opportunities found. Your spending looks efficient!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+      <h3 style={{ margin: '0 0 8px', color: COLORS.text }}>🎯 Optimization Opportunities</h3>
+      {suggestions.total_potential_savings > 0 && (
+        <p style={{ fontSize: 13, color: COLORS.accent, margin: '0 0 16px' }}>
+          💰 Potential annual savings: <strong>{formatCurrency(suggestions.total_potential_savings)}</strong>
+        </p>
+      )}
+
+      {suggestions.suggestions.map((s, i) => (
+        <div key={i} style={{ padding: 12, background: COLORS.bg, borderRadius: 8, marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>{s.icon} {s.title}</span>
+            {s.potential_savings > 0 && (
+              <span style={{ fontSize: 12, color: COLORS.accent, fontWeight: 600 }}>
+                Save {formatCurrency(s.potential_savings)}/yr
+              </span>
+            )}
+          </div>
+          <p style={{ fontSize: 12, color: COLORS.textMuted, margin: '0 0 8px' }}>{s.description}</p>
+          {s.action_items && (
+            <div style={{ fontSize: 11 }}>
+              <p style={{ fontWeight: 600, margin: '8px 0 4px' }}>Action items:</p>
+              {s.action_items.map((item, j) => (
+                <p key={j} style={{ margin: '2px 0', color: COLORS.text }}>• {item}</p>
+              ))}
+            </div>
+          )}
+          {s.impact && (
+            <p style={{ fontSize: 11, marginTop: 8, padding: 8, background: `${COLORS.accent}15`, borderRadius: 4 }}>
+              <strong>Impact:</strong> {s.impact}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// =============================================================================
+// NET WORTH BREAKDOWN (with proper real estate)
+// =============================================================================
+function NetWorthBreakdown({ apiUrl, apiKey }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editingRealEstate, setEditingRealEstate] = useState(false);
+  const [realEstateValue, setRealEstateValue] = useState('');
+
+  useEffect(() => {
+    fetch(`${apiUrl}/api/net-worth`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => r.json())
+      .then(data => {
+        setData(data);
+        setRealEstateValue(data.assets?.real_estate?.toString() || '1424800');
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [apiUrl, apiKey]);
+
+  const updateRealEstate = async () => {
+    const value = parseFloat(realEstateValue);
+    if (isNaN(value)) return;
+    
+    // Update via API (would need backend endpoint)
+    setData(prev => ({
+      ...prev,
+      assets: { ...prev.assets, real_estate: value },
+      total_assets: prev.total_assets - (prev.assets.real_estate || 0) + value,
+      net_worth: prev.net_worth - (prev.assets.real_estate || 0) + value
+    }));
+    setEditingRealEstate(false);
+  };
+
+  if (loading) return <div style={{ padding: 20, color: COLORS.textMuted }}>Calculating net worth...</div>;
+  if (!data) return null;
+
+  const assetColors = { 
+    checking_savings: COLORS.info, 
+    retirement: COLORS.accent, 
+    investment: COLORS.purple, 
+    '529_education': COLORS.warning, 
+    real_estate: '#8B4513',  // Brown for real estate
+    other_assets: COLORS.textMuted 
+  };
+  
+  const pieData = Object.entries(data.assets || {})
+    .filter(([_, v]) => v > 0)
+    .map(([k, v]) => ({ 
+      name: k.replace(/_/g, ' ').replace('529', '529 '), 
+      value: v, 
+      color: assetColors[k] || COLORS.textMuted 
+    }));
+
+  return (
+    <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+      <h3 style={{ margin: '0 0 16px', color: COLORS.text }}>💰 Net Worth Breakdown</h3>
+
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+        <div style={{ padding: 12, background: `${COLORS.accent}15`, borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ fontSize: 11, color: COLORS.textMuted, margin: 0 }}>Total Assets</p>
+          <p style={{ fontSize: 18, fontWeight: 700, color: COLORS.accent, margin: '4px 0 0' }}>{formatCurrency(data.total_assets)}</p>
+        </div>
+        <div style={{ padding: 12, background: `${COLORS.danger}15`, borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ fontSize: 11, color: COLORS.textMuted, margin: 0 }}>Total Liabilities</p>
+          <p style={{ fontSize: 18, fontWeight: 700, color: COLORS.danger, margin: '4px 0 0' }}>{formatCurrency(data.total_liabilities)}</p>
+        </div>
+        <div style={{ padding: 12, background: `${COLORS.primary}15`, borderRadius: 8, textAlign: 'center' }}>
+          <p style={{ fontSize: 11, color: COLORS.textMuted, margin: 0 }}>Net Worth</p>
+          <p style={{ fontSize: 18, fontWeight: 700, color: COLORS.primary, margin: '4px 0 0' }}>{formatCurrency(data.net_worth)}</p>
+        </div>
+      </div>
+
+      {/* Assets pie chart */}
+      <ResponsiveContainer width="100%" height={180}>
+        <PieChart>
+          <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={({ name, percent }) => percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : ''}>
+            {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+          </Pie>
+          <Tooltip formatter={(v) => formatCurrency(v)} />
+          <Legend wrapperStyle={{ fontSize: 10 }} />
+        </PieChart>
+      </ResponsiveContainer>
+
+      {/* Asset details */}
+      <div style={{ marginTop: 12 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: COLORS.accent, marginBottom: 8 }}>Assets</p>
+        {Object.entries(data.assets || {}).filter(([_, v]) => v > 0).map(([k, v]) => (
+          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '4px 0' }}>
+            <span style={{ textTransform: 'capitalize' }}>
+              {k === 'real_estate' ? '🏠 ' : ''}{k.replace(/_/g, ' ').replace('529', '529 ')}
+            </span>
+            {k === 'real_estate' && editingRealEstate ? (
+              <div style={{ display: 'flex', gap: 4 }}>
+                <input type="number" value={realEstateValue} onChange={(e) => setRealEstateValue(e.target.value)}
+                  style={{ width: 100, padding: 4, borderRadius: 4, border: `1px solid ${COLORS.accent}` }} />
+                <button onClick={updateRealEstate} style={{ padding: '4px 8px', background: COLORS.accent, color: '#FFF', border: 'none', borderRadius: 4, fontSize: 10 }}>Save</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 500 }}>{formatCurrency(v)}</span>
+                {k === 'real_estate' && (
+                  <button onClick={() => setEditingRealEstate(true)} style={{ padding: '2px 6px', background: COLORS.textMuted, color: '#FFF', border: 'none', borderRadius: 4, fontSize: 9, cursor: 'pointer' }}>Edit</button>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Liability details */}
+      <div style={{ marginTop: 12 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: COLORS.danger, marginBottom: 8 }}>Liabilities</p>
+        {Object.entries(data.liabilities || {}).filter(([_, v]) => v > 0).map(([k, v]) => (
+          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0' }}>
+            <span style={{ textTransform: 'capitalize' }}>{k.replace(/_/g, ' ')}</span>
+            <span style={{ fontWeight: 500, color: COLORS.danger }}>-{formatCurrency(v)}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Data sources */}
+      <p style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 12, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
+        Sources: YNAB ({data.breakdown?.ynab_accounts || 0} accounts) + Manual ({data.breakdown?.manual_accounts || 0} accounts) + Real Estate
+      </p>
+    </div>
+  );
+}
+
+// =============================================================================
+// BUDGET EDITOR (keep for backward compatibility but mark as deprecated)
 // =============================================================================
 function BudgetEditor({ apiUrl, apiKey }) {
   const [targets, setTargets] = useState({});
@@ -908,13 +1764,41 @@ export default function GoodlevDashboard() {
   const tabs = [
     { id: 'dashboard', label: '📊 Dashboard' },
     { id: 'budget', label: '💰 Budget' },
+    { id: 'transactions', label: '🔍 Transactions' },
     { id: 'trends', label: '📈 Trends' },
     { id: 'scenarios', label: '🎯 Scenarios' },
+    { id: 'actions', label: '✅ Action Items' },
     { id: 'accounts', label: '💳 Accounts' },
   ];
 
-  // Calculate net worth from accounts
-  const netWorth = accounts.reduce((sum, a) => sum + (a.balance || 0), 0) + 1451900; // + home value
+  // Get period dates for API calls
+  const periodDates = (() => {
+    const d = new Date(selectedDate);
+    let start, end;
+    switch (periodType) {
+      case 'month':
+        start = new Date(d.getFullYear(), d.getMonth(), 1);
+        end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        break;
+      case 'quarter':
+        const qStart = Math.floor(d.getMonth() / 3) * 3;
+        start = new Date(d.getFullYear(), qStart, 1);
+        end = new Date(d.getFullYear(), qStart + 3, 0);
+        break;
+      case 'year':
+        start = new Date(d.getFullYear(), 0, 1);
+        end = new Date(d.getFullYear(), 11, 31);
+        break;
+      case 'ytd':
+        start = new Date(d.getFullYear(), 0, 1);
+        end = new Date();
+        break;
+      default:
+        start = new Date(d.getFullYear(), d.getMonth(), 1);
+        end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    }
+    return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] };
+  })();
 
   return (
     <div style={{ minHeight: '100vh', background: COLORS.bg }}>
@@ -931,10 +1815,10 @@ export default function GoodlevDashboard() {
       </header>
 
       {/* Tabs */}
-      <nav style={{ background: COLORS.bgCard, borderBottom: `1px solid ${COLORS.border}`, padding: '0 24px', display: 'flex', gap: 4 }}>
+      <nav style={{ background: COLORS.bgCard, borderBottom: `1px solid ${COLORS.border}`, padding: '0 24px', display: 'flex', gap: 4, overflowX: 'auto' }}>
         {tabs.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            style={{ padding: '16px 20px', border: 'none', background: 'transparent',
+            style={{ padding: '16px 20px', border: 'none', background: 'transparent', whiteSpace: 'nowrap',
               borderBottom: activeTab === tab.id ? `3px solid ${COLORS.accent}` : '3px solid transparent',
               color: activeTab === tab.id ? COLORS.accent : COLORS.text, fontWeight: activeTab === tab.id ? 600 : 400, cursor: 'pointer', fontSize: 14 }}>
             {tab.label}
@@ -952,11 +1836,11 @@ export default function GoodlevDashboard() {
               <KPICard title="Monthly Income" value={formatCurrency(spending?.total_income || BASELINE.monthlyIncome)} icon="💵" color={COLORS.accent} />
               <KPICard title="Monthly Expenses" value={formatCurrency(spending?.total_spent || BASELINE.monthlyExpenses)} icon="📉" color={COLORS.danger} />
               <KPICard title="Surplus" value={formatCurrency(BASELINE.surplus)} subtitle="Available to allocate" icon="✨" color={COLORS.accent} />
-              <KPICard title="Net Worth" value={formatCurrency(netWorth)} icon="📊" color={COLORS.primary} />
+              <KPICard title="Net Worth" value="Click Accounts →" subtitle="Full breakdown" icon="📊" color={COLORS.primary} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 24 }}>
               <BudgetVsActual data={budgetVsActual} />
-              <BudgetRecommendations apiUrl={apiUrl} apiKey={apiKey} />
+              <SmartBudgetEditor apiUrl={apiUrl} apiKey={apiKey} />
             </div>
           </div>
         )}
@@ -965,11 +1849,32 @@ export default function GoodlevDashboard() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
             <div>
               <BudgetVsActual data={budgetVsActual} />
-              <div style={{ marginTop: 24 }}>
-                <BudgetRecommendations apiUrl={apiUrl} apiKey={apiKey} />
-              </div>
             </div>
-            <BudgetEditor apiUrl={apiUrl} apiKey={apiKey} />
+            <SmartBudgetEditor apiUrl={apiUrl} apiKey={apiKey} />
+          </div>
+        )}
+
+        {activeTab === 'transactions' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <TransactionDrillDown apiUrl={apiUrl} apiKey={apiKey} periodDates={periodDates} />
+            <div style={{ background: COLORS.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${COLORS.border}` }}>
+              <h3 style={{ margin: '0 0 16px', color: COLORS.text }}>📋 Period Summary</h3>
+              <p style={{ fontSize: 13, marginBottom: 12 }}>
+                Viewing: <strong>{periodDates.start}</strong> to <strong>{periodDates.end}</strong>
+              </p>
+              <div style={{ padding: 12, background: COLORS.bg, borderRadius: 8, marginBottom: 12 }}>
+                <p style={{ fontSize: 12, margin: '0 0 8px' }}><strong>Why no double-counting?</strong></p>
+                <ul style={{ fontSize: 11, margin: 0, paddingLeft: 16, color: COLORS.textMuted }}>
+                  <li>Credit card payments are excluded (just moving money between accounts)</li>
+                  <li>Transfers between accounts are excluded</li>
+                  <li>Only actual expenses to merchants/payees are counted</li>
+                  <li>Income only counted when deposited, not when moved</li>
+                </ul>
+              </div>
+              <p style={{ fontSize: 11, color: COLORS.textMuted }}>
+                Click a category above to filter transactions
+              </p>
+            </div>
           </div>
         )}
 
@@ -978,18 +1883,29 @@ export default function GoodlevDashboard() {
             <HistoricalTrends apiUrl={apiUrl} apiKey={apiKey} />
             <div>
               <SpendingTrends apiUrl={apiUrl} apiKey={apiKey} />
-              <div style={{ marginTop: 24 }}>
-                <BudgetRecommendations apiUrl={apiUrl} apiKey={apiKey} />
-              </div>
             </div>
           </div>
         )}
 
         {activeTab === 'scenarios' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-            <ScenarioComparison apiUrl={apiUrl} apiKey={apiKey} />
-            <ManualAccounts apiUrl={apiUrl} apiKey={apiKey} />
+            <div>
+              <ScenarioComparison apiUrl={apiUrl} apiKey={apiKey} />
+              <div style={{ marginTop: 24 }}>
+                <OptimizationSuggestions apiUrl={apiUrl} apiKey={apiKey} />
+              </div>
+            </div>
+            <div>
+              <CustomScenarioBuilder apiUrl={apiUrl} apiKey={apiKey} surplus={BASELINE.surplus} />
+              <div style={{ marginTop: 24 }}>
+                <ManualAccounts apiUrl={apiUrl} apiKey={apiKey} />
+              </div>
+            </div>
           </div>
+        )}
+
+        {activeTab === 'actions' && (
+          <ActionItems apiUrl={apiUrl} apiKey={apiKey} />
         )}
 
         {activeTab === 'accounts' && (
